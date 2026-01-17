@@ -19,8 +19,22 @@ import {
   buildCodeIntelligence, 
   CodeIntelligenceResult, 
   CodeChunk,
-  SearchResult 
+  SearchResult,
+  semanticSearch 
 } from './code-intelligence';
+import {
+  generateWithAgent,
+  initializeAgentMemory,
+  updateAgentMemory,
+  AgentMemory,
+  AgentContext
+} from './react-agent';
+import { 
+  getCachedKnowledgeBase, 
+  getCachedCodeIntelligence, 
+  serializeCodeIntelligence,
+  isRepoUpdated 
+} from './github-cache';
 import { generateChart, isSandboxAvailable, ChartResult } from './sandbox-client';
 import { 
   AVAILABLE_TOOLS, 
@@ -81,6 +95,7 @@ export interface GenerationContext {
   codebase?: CodeKnowledgeBase;
   codeIntelligence?: CodeIntelligenceResult; // Semantic search + knowledge graph
   codebaseSummary?: string; // LLM-generated understanding of what this codebase is
+  agentMemory?: AgentMemory; // Persistent memory for ReAct agent
   template: Template;
   artifacts?: { name: string; type: string; description?: string }[];
 }
@@ -223,11 +238,22 @@ function getFilePriority(path: string, name: string): number {
 /**
  * Fetch actual file content from GitHub
  */
-async function fetchFileContent(repoName: string, path: string): Promise<string | null> {
+async function fetchFileContent(
+  repoName: string,
+  path: string,
+  githubToken?: string | null,
+  ref?: string | null
+): Promise<string | null> {
   try {
+    const headers: HeadersInit = { 'Accept': 'application/vnd.github.v3.raw' };
+    const token = githubToken || process.env.NEXT_PUBLIC_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+    if (token) {
+      headers['Authorization'] = `token ${token}`;
+    }
+    const refParam = ref ? `?ref=${encodeURIComponent(ref)}` : '';
     const response = await fetch(
-      `https://api.github.com/repos/${repoName}/contents/${path}`,
-      { headers: { 'Accept': 'application/vnd.github.v3.raw' } }
+      `https://api.github.com/repos/${repoName}/contents/${path}${refParam}`,
+      { headers }
     );
     if (!response.ok) return null;
     const content = await response.text();
@@ -252,19 +278,70 @@ async function collectFiles(
   repoName: string, 
   path: string = '',
   depth: number = 0,
-  maxDepth: number = 3
+  maxDepth: number = 3,
+  githubToken?: string | null,
+  ref?: string | null
 ): Promise<{ path: string; name: string; type: string; size: number }[]> {
   if (depth > maxDepth) return [];
   
   try {
-    const response = await fetch(
-      `https://api.github.com/repos/${repoName}/contents/${path}`,
-      { headers: { 'Accept': 'application/vnd.github.v3+json' } }
-    );
-    if (!response.ok) return [];
+    const refParam = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+    const url = `https://api.github.com/repos/${repoName}/contents/${path}${refParam}`;
+    console.log(`[GitHub] Fetching: ${url} (depth ${depth})`);
+    
+    const headers: HeadersInit = { 'Accept': 'application/vnd.github.v3+json' };
+    if (githubToken) {
+      headers['Authorization'] = `token ${githubToken}`;
+    }
+    
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[GitHub] API error for ${url}: ${response.status} ${response.statusText}`, errorText);
+      
+      // If it's a 404 and we're at the root, this is a real problem
+      if (response.status === 404 && depth === 0) {
+        throw new Error(`GitHub contents error ${response.status} for ${url}. ${errorText}`);
+      }
+      
+      // If it's a 404 on a subdirectory, just return empty (that path doesn't exist, but repo is accessible)
+      if (response.status === 404) {
+        console.warn(`[GitHub] Path not found (404): ${path}, continuing...`);
+        return [];
+      }
+      
+      // If it's a 403, might be rate limiting or private repo
+      if (response.status === 403) {
+        const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+        const rateLimitReset = response.headers.get('x-ratelimit-reset');
+        if (rateLimitRemaining === '0') {
+          throw new Error(`GitHub API rate limit exceeded. Reset at: ${new Date(Number(rateLimitReset) * 1000).toLocaleString()}`);
+        }
+        // If we're not at root and get 403, might be a permissions issue on a subdirectory
+        if (depth > 0) {
+          console.warn(`[GitHub] Access denied (403) for path: ${path}, skipping...`);
+          return [];
+        }
+        throw new Error(`GitHub API access denied (403). The repository might be private or you may need authentication.`);
+      }
+      
+      // For other errors at root level, throw; for subdirectories, just skip
+      if (depth === 0) {
+        throw new Error(`GitHub contents error ${response.status} for ${url}. ${errorText}`);
+      }
+      console.warn(`[GitHub] Error ${response.status} for path ${path}, skipping...`);
+      return [];
+    }
+    
     const items = await response.json();
     
-    if (!Array.isArray(items)) return [];
+    if (!Array.isArray(items)) {
+      console.warn(`[GitHub] Expected array but got:`, typeof items, items);
+      return [];
+    }
+    
+    console.log(`[GitHub] Found ${items.length} items in ${path || 'root'}`);
     
     let files: { path: string; name: string; type: string; size: number }[] = [];
     
@@ -273,17 +350,19 @@ async function collectFiles(
         files.push({ path: item.path, name: item.name, type: item.type, size: item.size || 0 });
       } else if (item.type === 'dir') {
         // Skip node_modules, __pycache__, .git, etc.
-        const skipDirs = ['node_modules', '__pycache__', '.git', 'dist', 'build', 'venv', '.venv', 'env', '.env'];
+        const skipDirs = ['node_modules', '__pycache__', '.git', 'dist', 'build', 'venv', '.venv', 'env', '.env', '.next', 'out', 'coverage', '.nyc_output'];
         if (!skipDirs.includes(item.name.toLowerCase())) {
-          const subFiles = await collectFiles(repoName, item.path, depth + 1, maxDepth);
+          const subFiles = await collectFiles(repoName, item.path, depth + 1, maxDepth, githubToken, ref);
           files = files.concat(subFiles);
         }
       }
     }
     
     return files;
-  } catch {
-    return [];
+  } catch (error) {
+    console.error(`[GitHub] Error collecting files from ${path}:`, error);
+    // Re-throw to surface the error instead of silently failing
+    throw error;
   }
 }
 
@@ -291,7 +370,11 @@ async function collectFiles(
  * Build a comprehensive code knowledge base from GitHub repository
  * This fetches ACTUAL SOURCE CODE, not just file names
  */
-export async function buildCodeKnowledgeBase(repoUrl: string, onProgress?: (msg: string) => void): Promise<CodeKnowledgeBase> {
+export async function buildCodeKnowledgeBase(
+  repoUrl: string, 
+  onProgress?: (msg: string) => void,
+  githubToken?: string | null
+): Promise<CodeKnowledgeBase> {
   console.log('[GitHub] Building code knowledge base for:', repoUrl);
   onProgress?.('Connecting to GitHub repository...');
   
@@ -302,29 +385,164 @@ export async function buildCodeKnowledgeBase(repoUrl: string, onProgress?: (msg:
   const [, owner, repo] = match;
   const repoName = `${owner}/${repo.replace(/\.git$/, '')}`;
 
+  // Auto-detect GitHub token from various sources if not provided
+  let token = githubToken;
+  if (!token) {
+    try {
+      const { getGitHubToken } = await import('@/lib/github-auth');
+      token = await getGitHubToken();
+    } catch (error) {
+      // Fallback to env vars
+      token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT || process.env.NEXT_PUBLIC_GITHUB_TOKEN || null;
+    }
+  }
+  
+  const headers: HeadersInit = { 'Accept': 'application/vnd.github.v3+json' };
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+    console.log('[GitHub] Using authentication token');
+  } else {
+    console.log('[GitHub] No authentication token - will only work for public repos');
+  }
+
   try {
+    // First, verify the repository is accessible
+    onProgress?.('Verifying repository access...');
+    const repoCheckResponse = await fetch(`https://api.github.com/repos/${repoName}`, {
+      headers
+    });
+    
+    if (!repoCheckResponse.ok) {
+      const errorText = await repoCheckResponse.text().catch(() => '');
+      console.error(`[GitHub] Repository check failed: ${repoCheckResponse.status}`, errorText);
+      
+      if (repoCheckResponse.status === 404) {
+        const errorMsg = token
+          ? `Repository not found. Please check the repository URL: ${repoUrl}`
+          : `Repository not found or is private. ` +
+            `Please ensure the repository URL is correct and the repository is public, ` +
+            `or sign in with GitHub to access private repositories. URL: ${repoUrl}`;
+        throw new Error(errorMsg);
+      }
+      
+      if (repoCheckResponse.status === 403) {
+        const rateLimitRemaining = repoCheckResponse.headers.get('x-ratelimit-remaining');
+        const rateLimitReset = repoCheckResponse.headers.get('x-ratelimit-reset');
+        if (rateLimitRemaining === '0') {
+          const resetTime = rateLimitReset 
+            ? new Date(Number(rateLimitReset) * 1000).toLocaleString()
+            : 'unknown time';
+          throw new Error(`GitHub API rate limit exceeded. Reset at: ${resetTime}`);
+        }
+        throw new Error(
+          `GitHub API access denied (403). The repository might be private or you may need authentication. ` +
+          `If this is a private repository, you'll need to add a GitHub personal access token.`
+        );
+      }
+      
+      throw new Error(`GitHub API error: ${repoCheckResponse.status} ${repoCheckResponse.statusText}`);
+    }
+    
+    const repoInfo = await repoCheckResponse.json();
+    console.log('[GitHub] Repository verified:', repoInfo.name, repoInfo.private ? '(private)' : '(public)');
+    const defaultBranch = repoInfo?.default_branch || null;
+    if (defaultBranch) {
+      console.log('[GitHub] Default branch:', defaultBranch);
+    }
+    
     // Fetch repo metadata
     onProgress?.('Fetching repository metadata...');
-    const [repoInfo, readme] = await Promise.all([
-      fetch(`https://api.github.com/repos/${repoName}`, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' }
-      }).then(res => res.ok ? res.json() : null),
-      fetch(`https://api.github.com/repos/${repoName}/readme`, {
-        headers: { 'Accept': 'application/vnd.github.v3.raw' }
-      }).then(res => res.ok ? res.text() : '')
-    ]);
+    const readmeHeaders: HeadersInit = { 'Accept': 'application/vnd.github.v3.raw' };
+    if (token) {
+      readmeHeaders['Authorization'] = `token ${token}`;
+    }
+    const readme = await fetch(`https://api.github.com/repos/${repoName}/readme`, {
+      headers: readmeHeaders
+    }).then(res => res.ok ? res.text() : '').catch(() => '');
 
-    // Collect all files in the repository (up to 3 levels deep)
+    // Verify contents API access at repository root
+    onProgress?.('Checking repository contents...');
+    const rootRefParam = defaultBranch ? `?ref=${encodeURIComponent(defaultBranch)}` : '';
+    const rootContentsUrl = `https://api.github.com/repos/${repoName}/contents/${rootRefParam}`;
+    const rootContentsRes = await fetch(rootContentsUrl, { headers: readmeHeaders });
+    if (!rootContentsRes.ok) {
+      const rootErr = await rootContentsRes.text().catch(() => '');
+      throw new Error(
+        `GitHub contents API error ${rootContentsRes.status} for ${rootContentsUrl}. ${rootErr}`
+      );
+    }
+
+    // Collect all files in the repository (up to 4 levels deep for better coverage)
     onProgress?.('Scanning repository structure...');
-    const allFiles = await collectFiles(repoName, '', 0, 3);
-    console.log(`[GitHub] Found ${allFiles.length} files in repository`);
+    let allFiles: { path: string; name: string; type: string; size: number }[] = [];
+    
+    try {
+      allFiles = await collectFiles(repoName, '', 0, 4, token, defaultBranch); // Increased depth to 4
+      console.log(`[GitHub] Found ${allFiles.length} total files in repository`);
+    } catch (error) {
+      console.error('[GitHub] Failed to collect files:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Provide more helpful error messages
+      if (errorMessage.includes('contents error')) {
+        throw new Error(
+          `GitHub contents API failed. This usually means the repo is accessible, ` +
+          `but the contents endpoint could not be read. ` +
+          `Error: ${errorMessage}`
+        );
+      }
+
+      if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+        throw new Error(
+          `Repository not found or is private. ` +
+          `Please ensure the repository URL is correct and the repository is public, ` +
+          `or that you have access to it. URL: ${repoUrl}`
+        );
+      }
+      
+      if (errorMessage.includes('403') || errorMessage.includes('rate limit')) {
+        throw new Error(
+          `GitHub API access denied. This could be due to: ` +
+          `1) The repository is private (requires authentication), ` +
+          `2) GitHub API rate limit exceeded, or ` +
+          `3) Missing permissions. ` +
+          `Error: ${errorMessage}`
+        );
+      }
+      
+      throw new Error(`Failed to scan repository: ${errorMessage}`);
+    }
+
+    if (allFiles.length === 0) {
+      throw new Error('No files found in repository. The repository might be empty, private, or the path structure is unexpected.');
+    }
 
     // Filter to source code files only
-    const codeExtensions = ['py', 'js', 'ts', 'jsx', 'tsx', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'sql', 'yaml', 'yml', 'json', 'toml', 'md', 'sh'];
+    const codeExtensions = ['py', 'js', 'ts', 'jsx', 'tsx', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'sql', 'yaml', 'yml', 'json', 'toml', 'md', 'sh', 'bash', 'zsh', 'fish'];
     const sourceFiles = allFiles.filter(f => {
       const ext = f.name.split('.').pop()?.toLowerCase() || '';
-      return codeExtensions.includes(ext) && f.size < 100000; // Skip very large files
+      const hasExtension = ext.length > 0;
+      const isCodeFile = codeExtensions.includes(ext);
+      const isSmallEnough = f.size < 100000; // Skip very large files
+      
+      // Also include files without extensions if they're in common code directories
+      const isInCodeDir = f.path.includes('/src/') || f.path.includes('/lib/') || f.path.includes('/app/');
+      const isLikelyCode = !hasExtension && isInCodeDir;
+      
+      return (isCodeFile || isLikelyCode) && isSmallEnough;
     });
+
+    console.log(`[GitHub] Filtered to ${sourceFiles.length} source code files (from ${allFiles.length} total)`);
+
+    if (sourceFiles.length === 0) {
+      // Show what files we found for debugging
+      const sampleFiles = allFiles.slice(0, 20).map(f => `${f.name} (${f.size} bytes)`).join(', ');
+      throw new Error(
+        `No source code files found. Found ${allFiles.length} total files, but none matched code file extensions. ` +
+        `Sample files: ${sampleFiles}. ` +
+        `Looking for extensions: ${codeExtensions.join(', ')}`
+      );
+    }
 
     // Prioritize and select top files (limit to avoid rate limits and token limits)
     const prioritizedFiles = sourceFiles
@@ -332,7 +550,7 @@ export async function buildCodeKnowledgeBase(repoUrl: string, onProgress?: (msg:
       .sort((a, b) => b.priority - a.priority)
       .slice(0, 15); // Fetch up to 15 most important files (balanced speed/coverage)
 
-    console.log(`[GitHub] Selected ${prioritizedFiles.length} files to analyze`);
+    console.log(`[GitHub] Selected ${prioritizedFiles.length} files to analyze (top priority files)`);
     onProgress?.(`Analyzing ${prioritizedFiles.length} source files...`);
 
     // Fetch actual file contents in parallel (with rate limit consideration)
@@ -344,7 +562,7 @@ export async function buildCodeKnowledgeBase(repoUrl: string, onProgress?: (msg:
       onProgress?.(`Reading files ${i + 1}-${Math.min(i + batchSize, prioritizedFiles.length)} of ${prioritizedFiles.length}...`);
       
       const contents = await Promise.all(
-        batch.map(f => fetchFileContent(repoName, f.path))
+        batch.map(f => fetchFileContent(repoName, f.path, token, defaultBranch))
       );
       
       batch.forEach((file, idx) => {
@@ -400,15 +618,8 @@ export async function buildCodeKnowledgeBase(repoUrl: string, onProgress?: (msg:
     };
   } catch (error) {
     console.error('[GitHub] Error building knowledge base:', error);
-    return {
-      files: [],
-      readme: '',
-      repoName,
-      description: '',
-      primaryLanguage: 'Unknown',
-      topics: [],
-      structure: ['Failed to fetch repository data'],
-    };
+    // Re-throw the error so the caller can handle it properly
+    throw error;
   }
 }
 
@@ -762,6 +973,48 @@ async function generateBlock(
 ): Promise<GeneratedBlock> {
   console.log(`[OpenAI] Generating block: ${block.title}`);
   
+  // USE REACT AGENT if available (preferred method - prevents hallucination)
+  if (context.codeIntelligence && context.agentMemory) {
+    console.log(`[OpenAI] Using ReAct agent for: ${block.title}`);
+    
+    const agentCtx: AgentContext = {
+      openai,
+      codeIntelligence: context.codeIntelligence,
+      memory: context.agentMemory,
+      projectName: context.projectName,
+      availableFiles: context.codebase?.files.map(f => f.path) || []
+    };
+    
+    try {
+      const agentResult = await generateWithAgent(
+        agentCtx,
+        block.title,
+        block.instructions,
+        3 // max iterations for think-search-draft-verify loop
+      );
+      
+      // Update agent memory with what was generated
+      updateAgentMemory(context.agentMemory, block.title, agentResult.citations);
+      
+      console.log(`[OpenAI] Agent completed: ${agentResult.searchIterations} iterations, verified: ${agentResult.verificationPassed}`);
+      
+      return {
+        id: block.id,
+        type: block.type as 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART',
+        title: block.title,
+        content: agentResult.content,
+        confidence: agentResult.confidence,
+        citations: agentResult.citations,
+      };
+    } catch (error) {
+      console.error(`[OpenAI] Agent failed for "${block.title}", falling back to direct generation:`, error);
+      // Fall through to legacy generation
+    }
+  }
+  
+  // LEGACY GENERATION (fallback when agent not available)
+  console.log(`[OpenAI] Using legacy generation for: ${block.title}`);
+  
   let relevantFiles: CodeFile[] = [];
   let expectedCitations: string[] = [];
   let semanticContext = '';
@@ -844,6 +1097,9 @@ ${r.chunk.content.slice(0, 1500)}
   const userPrompt = `Write the "${block.title}" section.
 
 Document Path: ${block.sectionPath.join(' > ')}
+
+## CRITICAL: DO NOT include the section title "${block.title}" in your response.
+The title will be rendered separately. Start directly with your content.
 
 ## Section Requirements
 ${block.instructions}
@@ -1357,14 +1613,20 @@ async function detectGaps(
   // This is like having a documentation reviewer identify areas for improvement
   const independentReviewerPass = async () => {
     // Only run if we have few concrete gaps - otherwise we already know there are issues
-    if (concreteGaps.length >= 8) return;
+    if (concreteGaps.length >= 12) return;
     
-    // Review ALL sections, not just the first few
-    const sectionsToReview = sections;
+    // Flatten all sections including subsections for review
+    const getAllSections = (secs: GeneratedSection[]): GeneratedSection[] => {
+      return secs.flatMap(s => [s, ...(s.subsections ? getAllSections(s.subsections) : [])]);
+    };
     
-    for (const section of sectionsToReview) {
-      // Skip if already has gaps
-      if (concreteGaps.find(g => g.sectionId === section.id)) continue;
+    const allSections = getAllSections(sections);
+    console.log(`[DocGen] Reviewing ${allSections.length} sections for gaps...`);
+    
+    for (const section of allSections) {
+      // Limit to 2 gaps per section
+      const existingGapsForSection = concreteGaps.filter(g => g.sectionId === section.id).length;
+      if (existingGapsForSection >= 2) continue;
       
       const blockContent = section.blocks.map(b => b.content).join('\n\n');
       
@@ -1440,7 +1702,7 @@ Are there gaps where more detail would improve this documentation?`,
       allGaps.filter(g => g.severity === 'high').length, 'high,',
       allGaps.filter(g => g.severity === 'medium').length, 'medium,',
       allGaps.filter(g => g.severity === 'low').length, 'low');
-    return allGaps.slice(0, 7); // Allow more gaps to show
+    return allGaps.slice(0, 15); // Show more gaps
   }
   
   // Only use LLM if no obvious gaps found - and be strict about what counts
@@ -1611,7 +1873,14 @@ Be brutally honest. If this is a web app that calls APIs, say so. Don't make it 
  */
 export async function generateDocument(
   context: GenerationContext,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: (progress: number, message: string) => void,
+  projectCache?: {
+    lastCommitHash?: string;
+    cachedKnowledgeBase?: any;
+    cachedCodeIntelligence?: any;
+    githubToken?: string | null;
+    updateCache?: (updates: { lastCommitHash?: string; cachedKnowledgeBase?: any; cachedCodeIntelligence?: any }) => void;
+  }
 ): Promise<GenerationResult> {
   console.log('[DocGen] Starting document generation for:', context.projectName);
   console.log('[DocGen] Using template:', context.template.name, 'with', context.template.sections.length, 'sections');
@@ -1621,39 +1890,57 @@ export async function generateDocument(
     
     onProgress?.(5, 'Preparing generation context...');
     
-    // Build comprehensive code knowledge base from GitHub
+    // Build comprehensive code knowledge base from GitHub (with caching)
     if (context.repoUrl) {
-      onProgress?.(10, 'Building code knowledge base...');
+      onProgress?.(10, 'Checking repository cache...');
       try {
-        const codebase = await buildCodeKnowledgeBase(
+        // Use cached data if available
+        // GitHub token will be auto-detected from env vars or GitHub CLI
+        const { knowledgeBase, wasCached: kbCached, commitHash } = await getCachedKnowledgeBase(
           context.repoUrl,
-          (msg) => onProgress?.(15, msg)
+          projectCache?.lastCommitHash,
+          projectCache?.cachedKnowledgeBase,
+          (msg) => onProgress?.(15, msg),
+          false, // Don't force refresh
+          projectCache?.githubToken || null
         );
         
         // Attach to context
-        context.codebase = codebase;
-        context.repoReadme = codebase.readme;
-        context.repoStructure = codebase.structure;
+        context.codebase = knowledgeBase;
+        context.repoReadme = knowledgeBase.readme;
+        context.repoStructure = knowledgeBase.structure;
         
-        console.log(`[DocGen] Code knowledge base built: ${codebase.files.length} files analyzed`);
-        onProgress?.(25, `Analyzed ${codebase.files.length} source files from repository`);
+        console.log(`[DocGen] Code knowledge base: ${knowledgeBase.files.length} files (cached: ${kbCached})`);
+        onProgress?.(25, kbCached ? `Using cached data (${knowledgeBase.files.length} files)` : `Analyzed ${knowledgeBase.files.length} source files from repository`);
         
-        // Build code intelligence (embeddings + knowledge graph)
-        if (codebase.files.length > 0) {
+        // Build code intelligence (embeddings + knowledge graph) with caching
+        if (knowledgeBase.files.length > 0) {
           onProgress?.(30, 'Building semantic search index...');
           try {
-            const codeIntel = await buildCodeIntelligence(
-              codebase.files.map(f => ({
-                path: f.path,
-                content: f.content,
-                language: f.language,
-              })),
+            const { codeIntelligence, wasCached: ciCached } = await getCachedCodeIntelligence(
+              knowledgeBase,
+              projectCache?.cachedCodeIntelligence,
               openai,
+              kbCached,
               (msg) => onProgress?.(35, msg)
             );
-            context.codeIntelligence = codeIntel;
-            console.log(`[DocGen] Code intelligence built: ${codeIntel.chunks.length} semantic chunks, ${codeIntel.relationships.length} relationships`);
-            onProgress?.(40, `Built knowledge graph: ${codeIntel.chunks.length} chunks, ${codeIntel.relationships.length} relationships`);
+            
+            context.codeIntelligence = codeIntelligence;
+            console.log(`[DocGen] Code intelligence: ${codeIntelligence.chunks.length} chunks, ${codeIntelligence.relationships.length} relationships (cached: ${ciCached})`);
+            onProgress?.(40, ciCached 
+              ? `Using cached knowledge graph (${codeIntelligence.chunks.length} chunks)`
+              : `Built knowledge graph: ${codeIntelligence.chunks.length} chunks, ${codeIntelligence.relationships.length} relationships`
+            );
+            
+            // Update cache if we built fresh data
+            if (!kbCached || !ciCached) {
+              projectCache?.updateCache?.({
+                lastCommitHash: commitHash || undefined,
+                cachedKnowledgeBase: knowledgeBase,
+                cachedCodeIntelligence: serializeCodeIntelligence(codeIntelligence),
+              });
+              console.log('[DocGen] Updated project cache');
+            }
           } catch (error) {
             console.error('[DocGen] Failed to build code intelligence:', error);
             // Continue without it - will fall back to basic approach
@@ -1663,12 +1950,30 @@ export async function generateDocument(
         // Generate codebase summary to understand what this system actually is
         onProgress?.(42, 'Analyzing codebase to understand system type...');
         try {
-          const summary = await generateCodebaseSummary(openai, codebase, context.codeIntelligence);
+          const summary = await generateCodebaseSummary(openai, knowledgeBase, context.codeIntelligence);
           context.codebaseSummary = summary;
           console.log('[DocGen] Codebase summary stored in context');
-          onProgress?.(48, 'System analysis complete');
+          onProgress?.(45, 'System analysis complete');
         } catch (error) {
           console.error('[DocGen] Failed to generate codebase summary:', error);
+        }
+        
+        // Initialize ReAct agent memory for persistent understanding
+        if (context.codeIntelligence) {
+          onProgress?.(46, 'Initializing documentation agent...');
+          try {
+            const agentMem = await initializeAgentMemory(
+              openai,
+              context.codeIntelligence,
+              knowledgeBase.files.map((f: any) => f.path),
+              knowledgeBase.readme
+            );
+            context.agentMemory = agentMem;
+            console.log('[DocGen] ReAct agent memory initialized');
+            onProgress?.(48, 'Documentation agent ready');
+          } catch (error) {
+            console.error('[DocGen] Failed to initialize agent memory:', error);
+          }
         }
       } catch (error) {
         console.error('[DocGen] Failed to build code knowledge base:', error);

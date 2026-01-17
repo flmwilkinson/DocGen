@@ -1,0 +1,32 @@
+{
+  "name": "@docgen/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@docgen/shared": "workspace:*",
+    "@prisma/client": "^5.9.0",
+    "bullmq": "^5.1.0",
+    "dotenv": "^16.4.0",
+    "ioredis": "^5.3.2",
+    "openai": "^4.28.0",
+    "pino": "^8.18.0",
+    "pino-pretty": "^10.3.1",
+    "simple-git": "^3.22.0",
+    "tiktoken": "^1.0.13",
+    "ts-morph": "^21.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
+

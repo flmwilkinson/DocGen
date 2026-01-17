@@ -1,0 +1,16 @@
+{
+  "name": "@docgen/sandbox-repo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "dockerode": "^4.0.2",
+    "uuid": "^9.0.0"
+  }
+}
+

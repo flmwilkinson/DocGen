@@ -205,18 +205,18 @@ export default function TemplateDetailPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden p-6">
+    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden p-6 gap-4">
       {/* Back Button */}
       <button 
         onClick={() => router.push('/templates')}
-        className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors shrink-0 mb-4"
+        className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors shrink-0"
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Templates
       </button>
 
       {/* Header */}
-      <div className="flex items-start justify-between shrink-0 mb-6">
+      <div className="flex items-start justify-between shrink-0">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-brand-orange/10">
             <LayoutTemplate className="h-7 w-7 text-brand-orange" />
@@ -244,7 +244,7 @@ export default function TemplateDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-4 shrink-0">
         <div className="glass-card">
           <div className="flex items-center gap-3">
             <Layers className="h-5 w-5 text-brand-orange" />
@@ -284,12 +284,10 @@ export default function TemplateDetailPage() {
       </div>
 
       {/* Instructions */}
-      <div className="glass-panel p-4 border-l-4 border-brand-orange">
-        <p className="text-sm">
-          <strong>Click on sections</strong> to expand them and see their content blocks. 
-          <strong> Click on blocks</strong> to view the LLM prompts/instructions that will be used to generate content.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground shrink-0">
+        <strong className="text-foreground">Click on sections</strong> to expand them and see their content blocks. 
+        <strong className="text-foreground"> Click on blocks</strong> to view the LLM prompts/instructions that will be used to generate content.
+      </p>
 
       {/* Sections - Scrollable */}
       <div className="flex-1 min-h-0 flex flex-col">
@@ -300,14 +298,14 @@ export default function TemplateDetailPage() {
       </div>
 
       {/* Use Template */}
-      <div className="glass-panel p-6 shrink-0 mt-6">
+      <div className="glass-panel p-4 shrink-0">
         <h3 className="font-medium">Use this template</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Create a new documentation project using this template
         </p>
         <button 
           onClick={() => router.push(`/projects/new?template=${templateId}`)}
-          className="btn-primary mt-4"
+          className="btn-primary mt-3"
         >
           Create Project with Template
         </button>

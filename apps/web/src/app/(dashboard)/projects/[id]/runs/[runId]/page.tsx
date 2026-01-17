@@ -1,10 +1,26 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import {
+  Document as DocxDocument,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  LevelFormat,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+} from 'docx';
+import { toast } from 'sonner';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -33,7 +49,6 @@ import {
   Edit3,
   Check,
   AlertTriangle,
-  Info,
   FileWarning,
   BarChart3,
 } from 'lucide-react';
@@ -240,29 +255,26 @@ function GapCard({
   onHighlight: (gap: DocumentGap) => void;
   isActive?: boolean;
 }) {
-  const severityStyles = {
-    high: 'border-red-500/50 bg-red-500/10',
-    medium: 'border-yellow-500/50 bg-yellow-500/10',
-    low: 'border-blue-500/50 bg-blue-500/10',
-  };
+  const isMissing = gap.severity === 'critical' || gap.severity === 'high';
+  const severityStyles = isMissing
+    ? 'border-red-500/50 bg-red-500/10'
+    : 'border-yellow-500/50 bg-yellow-500/10';
   
-  const severityIcons = {
-    high: <AlertTriangle className="h-4 w-4 text-red-400" />,
-    medium: <FileWarning className="h-4 w-4 text-yellow-400" />,
-    low: <Info className="h-4 w-4 text-blue-400" />,
-  };
+  const severityIcon = isMissing
+    ? <AlertTriangle className="h-4 w-4 text-red-400" />
+    : <FileWarning className="h-4 w-4 text-yellow-400" />;
 
   return (
     <div 
       className={cn(
         "rounded-lg border p-3 mb-3 transition-all cursor-pointer",
-        severityStyles[gap.severity],
+        severityStyles,
         isActive && "ring-2 ring-brand-orange"
       )}
       onClick={() => onHighlight(gap)}
     >
       <div className="flex items-start gap-2">
-        {severityIcons[gap.severity]}
+        {severityIcon}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{gap.sectionTitle}</p>
           <p className="text-xs text-muted-foreground mt-1">{gap.description}</p>
@@ -332,9 +344,12 @@ export default function DocumentEditorPage() {
   // Refs for scrolling
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const documentContainerRef = useRef<HTMLDivElement | null>(null);
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
   
   // Smooth scroll reveal animation using Intersection Observer
   useEffect(() => {
+    const rootElement = contentScrollRef.current;
+    if (!rootElement) return;
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -346,6 +361,7 @@ export default function DocumentEditorPage() {
       },
       {
         threshold: 0.1,
+        root: rootElement,
         rootMargin: '0px 0px -50px 0px',
       }
     );
@@ -366,12 +382,14 @@ export default function DocumentEditorPage() {
   const scrollToSection = useCallback((sectionId: string) => {
     setActiveSection(sectionId);
     const section = sectionRefs.current[sectionId];
-    if (section) {
-      const offset = 100; // Account for header
-      const elementPosition = section.getBoundingClientRect().top;
-      const offsetPosition = elementPosition + window.pageYOffset - offset;
+    const scrollContainer = contentScrollRef.current;
+    if (section && scrollContainer) {
+      const offset = 80; // Account for toolbar and padding
+      const sectionRect = section.getBoundingClientRect();
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const offsetPosition = sectionRect.top - containerRect.top + scrollContainer.scrollTop - offset;
 
-      window.scrollTo({
+      scrollContainer.scrollTo({
         top: offsetPosition,
         behavior: 'smooth',
       });
@@ -782,10 +800,310 @@ export default function DocumentEditorPage() {
   }
 
   const gaps = run.gaps || [];
+  const sortedGaps = useMemo(() => {
+    const severityOrder: Record<string, number> = {
+      critical: 0,
+      high: 1,
+      medium: 2,
+      low: 3,
+    };
+    return [...gaps].sort((a, b) => {
+      const aOrder = severityOrder[a.severity] ?? 99;
+      const bOrder = severityOrder[b.severity] ?? 99;
+      return aOrder - bOrder;
+    });
+  }, [gaps]);
+
+  const sanitizeFilename = useCallback((name: string) => {
+    return name
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+  }, []);
+
+  const buildMarkdown = useCallback(() => {
+    const title = run?.documentTitle || run?.templateName || 'Document';
+    const lines: string[] = [`# ${title}`, ''];
+
+    const appendSections = (sections: GeneratedSection[], depth: number) => {
+      sections.forEach((section) => {
+        const headingLevel = Math.min(depth, 6);
+        lines.push(`${'#'.repeat(headingLevel)} ${section.title}`, '');
+
+        section.blocks.forEach((block) => {
+          if (typeof block.content === 'string') {
+            const trimmed = block.content.trim();
+            if (trimmed) {
+              lines.push(trimmed, '');
+            }
+          } else {
+            lines.push('```json', JSON.stringify(block.content, null, 2), '```', '');
+          }
+
+          if (block.citations && block.citations.length > 0) {
+            lines.push('_Sources:_');
+            block.citations.forEach((citation) => {
+              lines.push(`- ${citation}`);
+            });
+            lines.push('');
+          }
+        });
+
+        if (section.subsections && section.subsections.length > 0) {
+          appendSections(section.subsections, Math.min(depth + 1, 6));
+        }
+      });
+    };
+
+    if (run?.sections) {
+      appendSections(run.sections, 2);
+    }
+
+    return lines.join('\n');
+  }, [run?.documentTitle, run?.templateName, run?.sections]);
+
+  const convertMarkdownToDocx = useCallback((markdown: string) => {
+    type DocxChild = Paragraph | Table;
+    const tree = unified().use(remarkParse).use(remarkGfm).parse(markdown) as any;
+
+    const numbering = {
+      config: [
+        {
+          reference: 'docgen-numbering',
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.DECIMAL,
+              text: '%1.',
+              alignment: AlignmentType.LEFT,
+            },
+          ],
+        },
+      ],
+    };
+
+    const renderInline = (node: any, marks: { bold?: boolean; italics?: boolean; code?: boolean } = {}): TextRun[] => {
+      switch (node.type) {
+        case 'text':
+          return [new TextRun({ text: node.value || '', bold: marks.bold, italics: marks.italics })];
+        case 'strong':
+          return (node.children || []).flatMap((child: any) =>
+            renderInline(child, { ...marks, bold: true })
+          );
+        case 'emphasis':
+          return (node.children || []).flatMap((child: any) =>
+            renderInline(child, { ...marks, italics: true })
+          );
+        case 'inlineCode':
+          return [
+            new TextRun({
+              text: node.value || '',
+              bold: marks.bold,
+              italics: marks.italics,
+              font: 'Consolas',
+            }),
+          ];
+        case 'link':
+          return (node.children || []).flatMap((child: any) =>
+            renderInline(child, { ...marks }).map((run) =>
+              new TextRun({
+                text: (run as any).text || '',
+                bold: marks.bold,
+                italics: marks.italics,
+                color: '2A5DB0',
+                underline: {},
+              })
+            )
+          );
+        case 'break':
+          return [new TextRun({ text: '', break: 1 })];
+        default:
+          return (node.children || []).flatMap((child: any) => renderInline(child, marks));
+      }
+    };
+
+    const paragraphFromChildren = (
+      children: any[],
+      options?: { heading?: HeadingLevel; bullet?: { level: number }; numbering?: { level: number; reference: string }; forceBold?: boolean }
+    ) => {
+      const runs = (children || []).flatMap((child) => renderInline(child, options?.forceBold ? { bold: true } : {}));
+      return new Paragraph({
+        children: runs.length > 0 ? runs : [new TextRun('')],
+        heading: options?.heading,
+        bullet: options?.bullet,
+        numbering: options?.numbering,
+        spacing: { after: 160 },
+      });
+    };
+
+    const renderList = (node: any, level: number): Paragraph[] => {
+      const isOrdered = Boolean(node.ordered);
+      const listParagraphs: Paragraph[] = [];
+
+      (node.children || []).forEach((item: any) => {
+        (item.children || []).forEach((child: any) => {
+          if (child.type === 'paragraph') {
+            listParagraphs.push(
+              paragraphFromChildren(child.children || [], {
+                bullet: isOrdered ? undefined : { level },
+                numbering: isOrdered ? { level, reference: 'docgen-numbering' } : undefined,
+              })
+            );
+          } else if (child.type === 'list') {
+            listParagraphs.push(...renderList(child, Math.min(level + 1, 8)));
+          } else {
+            listParagraphs.push(paragraphFromChildren(child.children || [], {
+              bullet: isOrdered ? undefined : { level },
+              numbering: isOrdered ? { level, reference: 'docgen-numbering' } : undefined,
+            }));
+          }
+        });
+      });
+
+      return listParagraphs;
+    };
+
+    const renderTable = (node: any): Table => {
+      const rows = (node.children || []).map((row: any, rowIndex: number) => {
+        const isHeader = rowIndex === 0;
+        const cells = (row.children || []).map((cell: any) => {
+          const cellParagraphs = (cell.children || []).flatMap((child: any) => {
+            if (child.type === 'paragraph') {
+              return [paragraphFromChildren(child.children || [], { forceBold: isHeader })];
+            }
+            return renderBlocks([child]);
+          });
+          return new TableCell({
+            children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph('')],
+          });
+        });
+        return new TableRow({ children: cells, tableHeader: isHeader });
+      });
+
+      return new Table({
+        rows,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      });
+    };
+
+    const renderBlocks = (nodes: any[]): DocxChild[] => {
+      const output: DocxChild[] = [];
+      (nodes || []).forEach((node: any) => {
+        switch (node.type) {
+          case 'heading': {
+            const levelMap: Record<number, HeadingLevel> = {
+              1: HeadingLevel.HEADING_1,
+              2: HeadingLevel.HEADING_2,
+              3: HeadingLevel.HEADING_3,
+              4: HeadingLevel.HEADING_4,
+              5: HeadingLevel.HEADING_5,
+              6: HeadingLevel.HEADING_6,
+            };
+            output.push(paragraphFromChildren(node.children || [], { heading: levelMap[node.depth] || HeadingLevel.HEADING_2 }));
+            break;
+          }
+          case 'paragraph':
+            output.push(paragraphFromChildren(node.children || []));
+            break;
+          case 'list':
+            output.push(...renderList(node, 0));
+            break;
+          case 'blockquote':
+            output.push(
+              new Paragraph({
+                children: (node.children || []).flatMap((child: any) => renderInline(child)),
+                indent: { left: 720 },
+                spacing: { after: 160 },
+                italic: true,
+              })
+            );
+            break;
+          case 'code':
+            output.push(
+              new Paragraph({
+                children: [new TextRun({ text: node.value || '', font: 'Consolas' })],
+                spacing: { after: 160 },
+              })
+            );
+            break;
+          case 'table':
+            output.push(renderTable(node));
+            output.push(new Paragraph(''));
+            break;
+          case 'thematicBreak':
+            output.push(new Paragraph(''));
+            break;
+          default:
+            if (node.children) {
+              output.push(...renderBlocks(node.children));
+            }
+        }
+      });
+      return output;
+    };
+
+    const children = renderBlocks(tree.children || []);
+
+    return new DocxDocument({
+      numbering,
+      sections: [
+        {
+          properties: {},
+          children: children.length > 0 ? children : [new Paragraph('')],
+        },
+      ],
+    });
+  }, []);
+
+  const handleShare = useCallback(async () => {
+    const title = run?.documentTitle || run?.templateName || 'Document';
+    const url = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, url });
+        toast.success('Share sheet opened');
+        return;
+      }
+    } catch (error) {
+      // Fall back to clipboard if share sheet fails
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link copied to clipboard');
+    } catch (error) {
+      toast.error('Could not copy link');
+    }
+  }, [run?.documentTitle, run?.templateName]);
+
+  const handleExport = useCallback(async () => {
+    if (!run?.sections || run.sections.length === 0) {
+      toast.error('No document content to export');
+      return;
+    }
+
+    const title = run.documentTitle || run.templateName || 'Document';
+    const markdown = buildMarkdown();
+    try {
+      const doc = convertMarkdownToDocx(markdown);
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${sanitizeFilename(title)}.docx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Word export started');
+    } catch (error) {
+      toast.error('Failed to export Word document');
+    }
+  }, [buildMarkdown, convertMarkdownToDocx, run?.documentTitle, run?.templateName, run?.sections, sanitizeFilename]);
 
   // Full height container - header is 64px (4rem)
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden p-6">
+    <div className="flex h-full overflow-hidden px-6 pt-6">
       {/* Document Outline Sidebar */}
       <div className={cn(
         "shrink-0 border-r border-glass-border bg-background/50 transition-all duration-300 flex flex-col",
@@ -793,7 +1111,7 @@ export default function DocumentEditorPage() {
       )}>
         {!isOutlineCollapsed && (
           <>
-            <div className="p-3 border-b border-glass-border flex items-center justify-between">
+            <div className="h-12 px-3 border-b border-glass-border flex items-center justify-between">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Outline
               </h3>
@@ -860,8 +1178,8 @@ export default function DocumentEditorPage() {
       {/* Main Document Editor */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Toolbar */}
-        <div className="shrink-0 border-b border-glass-border bg-background/50 px-4 py-2">
-          <div className="flex items-center justify-between">
+        <div className="shrink-0 border-b border-glass-border bg-background/50 px-4">
+          <div className="h-12 flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <Link 
                 href={`/projects/${projectId}`}
@@ -885,11 +1203,11 @@ export default function DocumentEditorPage() {
                   {gaps.length} gap{gaps.length > 1 ? 's' : ''}
                 </button>
               )}
-              <button className="btn-ghost text-xs">
+              <button onClick={handleShare} className="btn-ghost text-xs">
                 <Share className="h-4 w-4 mr-1" />
                 Share
               </button>
-              <button className="btn-secondary text-xs py-1.5">
+              <button onClick={handleExport} className="btn-secondary text-xs py-1.5">
                 <Download className="h-4 w-4 mr-1" />
                 Export
               </button>
@@ -907,7 +1225,7 @@ export default function DocumentEditorPage() {
         </div>
 
         {/* Document Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+        <div ref={contentScrollRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           <div className="max-w-4xl mx-auto py-8 px-6 pb-20">
             {/* Document Container - White pane for light mode, glass for dark */}
             <div 
@@ -1114,7 +1432,7 @@ export default function DocumentEditorPage() {
                                       {block.citations.slice(0, 5).map((citation, i) => (
                                         <span
                                           key={i}
-                                          className="text-xs px-2 py-1 rounded bg-glass-bg border border-glass-border text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                          className="text-xs px-2 py-1 rounded bg-glass-bg border border-glass-border text-muted-foreground hover:text-foreground dark:text-foreground/80 dark:hover:text-foreground transition-colors cursor-pointer"
                                           title={citation}
                                         >
                                           {citation.split('/').pop() || citation}
@@ -1296,7 +1614,7 @@ export default function DocumentEditorPage() {
                               {block.citations.slice(0, 5).map((citation, i) => (
                                 <span
                                   key={i}
-                                  className="text-xs bg-glass-bg/50 px-2 py-1 rounded-md text-muted-foreground hover:text-brand-orange hover:bg-brand-orange/10 cursor-pointer transition-colors"
+                                  className="text-xs bg-glass-bg/50 px-2 py-1 rounded-md text-muted-foreground hover:text-brand-orange hover:bg-brand-orange/10 dark:text-foreground/80 dark:hover:text-foreground cursor-pointer transition-colors"
                                   title={citation}
                                 >
                                   <Code className="h-3 w-3 inline mr-1" />
@@ -1332,11 +1650,11 @@ export default function DocumentEditorPage() {
         {isChatOpen && (
           <div className="flex flex-col h-full w-72 overflow-hidden">
             {/* Tabs */}
-            <div className="shrink-0 flex border-b border-glass-border">
+            <div className="shrink-0 flex border-b border-glass-border h-12 items-center">
               <button
                 onClick={() => setChatTab('chat')}
                 className={cn(
-                  "flex-1 py-2 text-xs font-medium transition-colors",
+                  "flex-1 h-12 text-xs font-medium transition-colors flex items-center justify-center",
                   chatTab === 'chat' 
                     ? "text-brand-orange border-b-2 border-brand-orange" 
                     : "text-muted-foreground hover:text-foreground"
@@ -1348,7 +1666,7 @@ export default function DocumentEditorPage() {
               <button
                 onClick={() => setChatTab('gaps')}
                 className={cn(
-                  "flex-1 py-2 text-xs font-medium transition-colors relative",
+                  "flex-1 h-12 text-xs font-medium transition-colors relative flex items-center justify-center",
                   chatTab === 'gaps' 
                     ? "text-brand-orange border-b-2 border-brand-orange" 
                     : "text-muted-foreground hover:text-foreground"
@@ -1402,7 +1720,7 @@ export default function DocumentEditorPage() {
                       <p className="text-xs mt-1">Your documentation looks complete.</p>
                     </div>
                   ) : (
-                    gaps.map((gap) => (
+                    sortedGaps.map((gap) => (
                       <GapCard 
                         key={gap.id} 
                         gap={gap} 

@@ -64,10 +64,13 @@
     "react-markdown": "^10.1.0",
     "reactflow": "^11.10.2",
     "recharts": "^2.10.4",
+    "docx": "^8.5.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "sonner": "^1.7.4",
     "tailwind-merge": "^2.2.0",
     "tailwindcss-animate": "^1.0.7",
+    "unified": "^11.0.4",
     "zod": "^3.22.4",
     "zustand": "^4.4.7"
   },

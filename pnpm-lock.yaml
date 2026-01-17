@@ -219,6 +219,9 @@ importers:
       date-fns:
         specifier: ^3.2.0
         version: 3.6.0
+      docx:
+        specifier: ^8.5.0
+        version: 8.6.0
       framer-motion:
         specifier: ^10.18.0
         version: 10.18.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -267,6 +270,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
       sonner:
         specifier: ^1.7.4
         version: 1.7.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -276,6 +282,9 @@ importers:
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@3.4.19(tsx@4.21.0)(yaml@2.8.2))
+      unified:
+        specifier: ^11.0.4
+        version: 11.0.5
       zod:
         specifier: ^3.22.4
         version: 3.25.76
@@ -3417,6 +3426,11 @@ packages:
     resolution: {integrity: sha512-yS+Q5i3hBf7GBkd4KG8a7eBNNWNGLTaEwwYWUijIYM7zrlYDM0BFXHjjPWlWZ1Rg7UaddZeIDmi9jF3HmqiQ2w==}
     engines: {node: '>=6.0.0'}
 
+  docx@8.6.0:
+    resolution: {integrity: sha512-JEzPozEsuGIyUkEqdGlCv/b1avYeXjR4PjwiLdPwRKdsI9spBCq4WP0QcGYfIANpgYdJSphw4IT8M/a9dpnpvQ==}
+    engines: {node: '>=10'}
+    deprecated: A API breaking change was introduced here, which was incompatible with semantic versioning
+
   dom-helpers@5.2.1:
     resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
 
@@ -4594,6 +4608,11 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  nanoid@5.1.6:
+    resolution: {integrity: sha512-c7+7RQ+dMB5dPwwCp4ee1/iV/q2P6aK1mTZcfr1BTuVlyW9hJYiMPybJCcnBlQtuSmTIWNeazm/zqNoZSSElBg==}
+    engines: {node: ^18 || >=20}
+    hasBin: true
+
   napi-postinstall@0.3.4:
     resolution: {integrity: sha512-PHI5f1O0EP5xJ9gQmFGMS6IZcrVvTjpXjz7Na41gTE7eE2hK11lg04CECCYEEjdc17EV4DO+fkGEtt7TpTaTiQ==}
     engines: {node: ^12.20.0 || ^14.18.0 || >=16.0.0}
@@ -5326,6 +5345,10 @@ packages:
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
+  sax@1.4.4:
+    resolution: {integrity: sha512-1n3r/tGXO6b6VXMdFT54SHzT9ytu9yr7TaELowdYpMqY/Ao7EnlQGmAQ1+RatX7Tkkdm6hONI2owqNx2aZj5Sw==}
+    engines: {node: '>=11.0.0'}
+
   scheduler@0.23.2:
     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
 
@@ -6045,6 +6068,13 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
+
+  xml-js@1.6.11:
+    resolution: {integrity: sha512-7rVi2KMfwfWFl+GpPg6m80IVMWXLRjO+PxTq7V2CDhoGak0wzYzFgUY2m4XJ47OGdXd8eLE8EmwfAmdjw7lC1g==}
+    hasBin: true
+
+  xml@1.0.1:
+    resolution: {integrity: sha512-huCv9IH9Tcf95zuYCsQraZtWnJvBtLVE0QHMOs8bWyZAFZNDcYjsPq1nEx8jKA9y+Beo9v+7OBPRisQTjinQMw==}
 
   xmlbuilder@10.1.1:
     resolution: {integrity: sha512-OyzrcFLL/nb6fMGHbiRDuPup9ljBycsdCypwuyg5AAHvyWzGfChJpCXMG88AGTIMFhGZ9RccFN1e6lhg3hkwKg==}
@@ -9477,6 +9507,14 @@ snapshots:
     dependencies:
       esutils: 2.0.3
 
+  docx@8.6.0:
+    dependencies:
+      '@types/node': 20.19.30
+      jszip: 3.10.1
+      nanoid: 5.1.6
+      xml: 1.0.1
+      xml-js: 1.6.11
+
   dom-helpers@5.2.1:
     dependencies:
       '@babel/runtime': 7.28.6
@@ -11164,6 +11202,8 @@ snapshots:
 
   nanoid@3.3.11: {}
 
+  nanoid@5.1.6: {}
+
   napi-postinstall@0.3.4: {}
 
   natural-compare@1.4.0: {}
@@ -12041,6 +12081,8 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
+  sax@1.4.4: {}
+
   scheduler@0.23.2:
     dependencies:
       loose-envify: 1.4.0
@@ -12874,6 +12916,12 @@ snapshots:
   wrappy@1.0.2: {}
 
   ws@8.19.0: {}
+
+  xml-js@1.6.11:
+    dependencies:
+      sax: 1.4.4
+
+  xml@1.0.1: {}
 
   xmlbuilder@10.1.1: {}
 

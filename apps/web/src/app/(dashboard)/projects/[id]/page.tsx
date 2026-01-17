@@ -688,7 +688,6 @@ export default function ProjectPage() {
                   }
                 }}
                 className="p-2 hover:bg-glass-bg rounded-lg transition-colors"
-                disabled={isGenerating}
                 title={isGenerating ? "Generation is running in the background. Check notifications for updates." : "Close"}
               >
                 <X className="h-5 w-5" />
@@ -857,6 +856,9 @@ export default function ProjectPage() {
                 <h3 className="font-medium mb-2">Generating Documentation...</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   {generationMessage || 'Connecting to AI...'}
+                </p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  You can close this dialog while generation continues in the background.
                 </p>
                 <div className="w-full h-2 bg-glass-bg rounded-full overflow-hidden">
                   <div 

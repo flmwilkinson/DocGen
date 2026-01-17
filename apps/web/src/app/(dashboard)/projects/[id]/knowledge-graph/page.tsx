@@ -14,6 +14,9 @@ import ReactFlow, {
   ConnectionMode,
   MarkerType,
   ReactFlowProvider,
+  useReactFlow,
+  Handle,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
@@ -45,6 +48,17 @@ const nodeColors: Record<string, string> = {
   CONFIG: '#a855f7',
 };
 
+const edgeColors: Record<string, string> = {
+  CONTAINS: '#475569',
+  DECLARES: '#64748b',
+  IMPORTS: '#f59e0b',
+  CALLS: '#ec4899',
+  EXTENDS: '#10b981',
+  IMPLEMENTS: '#10b981',
+  USES: '#6366f1',
+  EXPORTS: '#8b5cf6',
+};
+
 const nodeIcons: Record<string, React.ReactNode> = {
   DIRECTORY: <Folder className="h-4 w-4" />,
   FILE: <File className="h-4 w-4" />,
@@ -58,8 +72,11 @@ function KnowledgeGraphContent() {
   const project = useProjectsStore((state) => state.getProject(projectId));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
+  const [activeEdgeTypes, setActiveEdgeTypes] = useState<Set<string>>(new Set());
   const [kgData, setKgData] = useState<CodeIntelligenceResult | null>(null);
+  const [knowledgeBase, setKnowledgeBase] = useState<CodeKnowledgeBase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [repoUpdated, setRepoUpdated] = useState(false);
@@ -68,6 +85,7 @@ function KnowledgeGraphContent() {
   const [currentStep, setCurrentStep] = useState<string>('');
   const updateProject = useProjectsStore((state) => state.updateProject);
   const { data: session } = useSession();
+  const { fitView } = useReactFlow();
   
   const addDebugStep = useCallback((step: string) => {
     console.log('[KG Debug]', step);
@@ -147,6 +165,7 @@ function KnowledgeGraphContent() {
         forceRefresh,
         githubToken
       );
+      setKnowledgeBase(knowledgeBase);
       
       setWasCached(kbCached);
       setRepoUpdated(commitHash !== project.lastCommitHash && commitHash !== null);
@@ -229,7 +248,7 @@ function KnowledgeGraphContent() {
   }, [project?.repoUrl, loadKnowledgeGraph]);
 
   // Convert KG data to React Flow format
-  const { flowNodes, flowEdges } = useMemo(() => {
+  const { flowNodes, flowEdges, edgeTypeStats, allFlowEdges } = useMemo(() => {
     // Use real data if available, otherwise use empty arrays
     if (!kgData) {
       return { flowNodes: [], flowEdges: [] };
@@ -240,11 +259,17 @@ function KnowledgeGraphContent() {
     const fileNodes: Map<string, { id: string; path: string; depth: number }> = new Map();
     const dirNodes: Map<string, { id: string; path: string; depth: number }> = new Map();
     
-    // First pass: create file and directory nodes
-    kgData.chunks.forEach((chunk) => {
-      const pathParts = chunk.filePath.split('/');
-      
-      // Create directory nodes
+    // First pass: create file and directory nodes from knowledge base (full repo coverage)
+    const allFilePaths = new Set<string>();
+    if (knowledgeBase?.files?.length) {
+      knowledgeBase.files.forEach((file) => {
+        allFilePaths.add(file.path);
+      });
+    }
+    kgData.chunks.forEach((chunk) => allFilePaths.add(chunk.filePath));
+
+    allFilePaths.forEach((filePath) => {
+      const pathParts = filePath.split('/');
       for (let i = 0; i < pathParts.length - 1; i++) {
         const dirPath = pathParts.slice(0, i + 1).join('/');
         if (!dirNodes.has(dirPath)) {
@@ -255,17 +280,18 @@ function KnowledgeGraphContent() {
           });
         }
       }
-      
-      // Create file node
-      if (!fileNodes.has(chunk.filePath)) {
-        fileNodes.set(chunk.filePath, {
-          id: `file:${chunk.filePath}`,
-          path: chunk.filePath,
+      if (!fileNodes.has(filePath)) {
+        fileNodes.set(filePath, {
+          id: `file:${filePath}`,
+          path: filePath,
           depth: pathParts.length - 1,
         });
       }
-      
-      // Create chunk node
+    });
+
+    // Create chunk nodes (functions/classes/modules)
+    kgData.chunks.forEach((chunk) => {
+      const pathParts = chunk.filePath.split('/');
       chunkNodes.push({
         id: chunk.id,
         chunk,
@@ -273,59 +299,73 @@ function KnowledgeGraphContent() {
       });
     });
 
-    // Build hierarchical positions
+    // Build deterministic positions (grid layout per depth)
     const nodePositions: Record<string, { x: number; y: number }> = {};
-    
+
+    const layoutByDepth = (
+      idsByDepth: Record<number, string[]>,
+      startY: number,
+      spacingX: number,
+      spacingY: number,
+      maxPerRow: number
+    ) => {
+      Object.entries(idsByDepth).forEach(([depthStr, ids]) => {
+        const depth = Number(depthStr);
+        const rows = Math.ceil(ids.length / maxPerRow);
+        const rowOffsetY = startY + depth * spacingY;
+        ids.forEach((id, index) => {
+          const row = Math.floor(index / maxPerRow);
+          const col = index % maxPerRow;
+          const x = (col - Math.min(maxPerRow, ids.length) / 2) * spacingX + 400;
+          const y = rowOffsetY + row * (spacingY * 0.6);
+          nodePositions[id] = { x, y };
+        });
+        // Nudge to keep rows centered vertically for each depth
+        if (rows > 1) {
+          ids.forEach((id, index) => {
+            const row = Math.floor(index / maxPerRow);
+            nodePositions[id].y -= (rows - 1) * (spacingY * 0.3) / 2;
+          });
+        }
+      });
+    };
+
     // Position directories
     const dirsByDepth: Record<number, string[]> = {};
     dirNodes.forEach((node) => {
       if (!dirsByDepth[node.depth]) dirsByDepth[node.depth] = [];
       dirsByDepth[node.depth].push(node.id);
     });
-    
-    Object.entries(dirsByDepth).forEach(([depthStr, dirIds]) => {
-      const depth = Number(depthStr);
-      const y = depth * 150 + 50;
-      dirIds.forEach((dirId, index) => {
-        const x = (index - dirIds.length / 2) * 300 + 400;
-        nodePositions[dirId] = { x, y };
-      });
-    });
-    
+    layoutByDepth(dirsByDepth, 40, 220, 140, 8);
+
     // Position files
     const filesByDepth: Record<number, string[]> = {};
     fileNodes.forEach((node) => {
       if (!filesByDepth[node.depth]) filesByDepth[node.depth] = [];
       filesByDepth[node.depth].push(node.id);
     });
-    
-    Object.entries(filesByDepth).forEach(([depthStr, fileIds]) => {
-      const depth = Number(depthStr);
-      const y = depth * 150 + 100;
-      fileIds.forEach((fileId, index) => {
-        const x = (index - fileIds.length / 2) * 300 + 400;
-        nodePositions[fileId] = { x, y };
-      });
-    });
-    
-    // Position chunks (classes, functions)
+    layoutByDepth(filesByDepth, 120, 200, 150, 7);
+
+    // Position chunks (classes, functions) under their file
     const chunksByFile: Record<string, CodeChunk[]> = {};
     chunkNodes.forEach(({ chunk }) => {
       if (!chunksByFile[chunk.filePath]) chunksByFile[chunk.filePath] = [];
       chunksByFile[chunk.filePath].push(chunk);
     });
-    
+
     chunkNodes.forEach(({ id, chunk }) => {
-      const fileChunks = chunksByFile[chunk.filePath] || [];
-      const index = fileChunks.indexOf(chunk);
       const fileNode = fileNodes.get(chunk.filePath);
-      if (fileNode) {
-        const filePos = nodePositions[fileNode.id];
-        nodePositions[id] = {
-          x: filePos.x + (index - fileChunks.length / 2) * 200,
-          y: filePos.y + 150,
-        };
-      }
+      const fileChunks = chunksByFile[chunk.filePath] || [];
+      if (!fileNode) return;
+      const filePos = nodePositions[fileNode.id];
+      const index = fileChunks.indexOf(chunk);
+      const perRow = 3;
+      const row = Math.floor(index / perRow);
+      const col = index % perRow;
+      nodePositions[id] = {
+        x: filePos.x + (col - (perRow - 1) / 2) * 180,
+        y: filePos.y + 120 + row * 100,
+      };
     });
 
     // Create React Flow nodes
@@ -343,7 +383,9 @@ function KnowledgeGraphContent() {
         },
       })),
       // File nodes
-      ...Array.from(fileNodes.values()).map((node) => ({
+      ...Array.from(fileNodes.values()).map((node) => {
+        const kbFile = knowledgeBase?.files?.find((f) => f.path === node.path);
+        return ({
         id: node.id,
         type: 'custom',
         position: nodePositions[node.id] || { x: 0, y: 0 },
@@ -351,9 +393,10 @@ function KnowledgeGraphContent() {
           label: node.path.split('/').pop() || node.path,
           nodeType: 'FILE',
           filePath: node.path,
-          metadata: { language: kgData.chunks.find(c => c.filePath === node.path)?.language },
+          metadata: { language: kbFile?.language || kgData.chunks.find(c => c.filePath === node.path)?.language },
         },
-      })),
+      });
+      }),
       // Chunk nodes (classes, functions)
       ...chunkNodes.map(({ id, chunk }) => ({
         id,
@@ -427,10 +470,11 @@ function KnowledgeGraphContent() {
         target,
         type: 'smoothstep',
         animated: false,
+        data: { edgeType: label, category: 'structure' },
         style: {
           stroke: color,
-          strokeWidth: 1.5,
-          opacity: 0.7,
+          strokeWidth: 2.5,
+          opacity: 1,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -505,14 +549,6 @@ function KnowledgeGraphContent() {
         };
         
         const edgeType = edgeTypeMap[rel.type] || rel.type.toUpperCase();
-        const edgeColors: Record<string, string> = {
-          IMPORTS: '#f59e0b',
-          CALLS: '#ec4899',
-          EXTENDS: '#10b981',
-          IMPLEMENTS: '#10b981',
-          USES: '#6366f1',
-          EXPORTS: '#8b5cf6',
-        };
         const color = edgeColors[edgeType] || '#6b7280';
         
         return {
@@ -521,10 +557,11 @@ function KnowledgeGraphContent() {
           target: targetId,
           type: edgeType === 'IMPORTS' ? 'smoothstep' : 'straight',
           animated: edgeType === 'IMPORTS' || edgeType === 'CALLS',
+          data: { edgeType, category: 'relationship' },
           style: {
             stroke: color,
-            strokeWidth: edgeType === 'IMPORTS' ? 3 : edgeType === 'CALLS' ? 2.5 : 2,
-            opacity: 0.9,
+            strokeWidth: edgeType === 'IMPORTS' ? 3.2 : edgeType === 'CALLS' ? 2.8 : 2.4,
+            opacity: 1,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -552,9 +589,20 @@ function KnowledgeGraphContent() {
       .filter((e): e is Edge => e !== null);
 
     const allFlowEdges = [...structuralEdges, ...relationshipEdges];
+    const edgeStats: Record<string, number> = {};
+    allFlowEdges.forEach((edge) => {
+      const type = (edge.data as { edgeType?: string })?.edgeType || edge.label?.toString() || 'UNKNOWN';
+      edgeStats[type] = (edgeStats[type] || 0) + 1;
+    });
+    const filteredEdges = activeEdgeTypes.size
+      ? allFlowEdges.filter((edge) => {
+          const type = (edge.data as { edgeType?: string })?.edgeType || edge.label?.toString() || 'UNKNOWN';
+          return activeEdgeTypes.has(type);
+        })
+      : allFlowEdges;
 
-    return { flowNodes: allFlowNodes, flowEdges: allFlowEdges };
-  }, [kgData, searchQuery, filterTypes]);
+    return { flowNodes: allFlowNodes, flowEdges: filteredEdges, edgeTypeStats: edgeStats, allFlowEdges };
+  }, [kgData, searchQuery, filterTypes, activeEdgeTypes]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(flowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowEdges);
@@ -565,8 +613,78 @@ function KnowledgeGraphContent() {
     setEdges(flowEdges);
   }, [flowNodes, flowEdges, setNodes, setEdges]);
 
+  // Initialize edge filters on first load
+  useEffect(() => {
+    if (activeEdgeTypes.size > 0) return;
+    const edgeTypes = Object.keys(edgeTypeStats || {});
+    if (edgeTypes.length > 0) {
+      setActiveEdgeTypes(new Set(edgeTypes));
+    }
+  }, [edgeTypeStats, activeEdgeTypes.size]);
+
+  // Apply a lightweight force layout so nodes re-space after filtering
+  // Physics removed in favor of deterministic layout (prevents crossovers)
+
+
+  const displayNodes = useMemo(() => {
+    const focusId = hoveredNode || selectedNode;
+    if (!focusId) {
+      return nodes.map((n) => ({
+        ...n,
+        style: { ...n.style, opacity: 1 },
+      }));
+    }
+    const connected = new Set<string>([focusId]);
+    edges.forEach((e) => {
+      if (e.source === focusId || e.target === focusId) {
+        connected.add(e.source);
+        connected.add(e.target);
+      }
+    });
+    return nodes.map((n) => ({
+      ...n,
+      style: {
+        ...n.style,
+        opacity: connected.has(n.id) ? 1 : 0.15,
+      },
+    }));
+  }, [nodes, edges, hoveredNode, selectedNode]);
+
+  const displayEdges = useMemo(() => {
+    const focusId = hoveredNode || selectedNode;
+    const isFocused = (e: Edge) => !focusId || e.source === focusId || e.target === focusId;
+    return edges.map((e) => {
+      const focused = isFocused(e);
+      return {
+        ...e,
+        style: {
+          ...e.style,
+          opacity: focused ? 1 : 0.08,
+        },
+        labelStyle: {
+          ...(e.labelStyle || {}),
+          opacity: focused ? 1 : 0,
+        },
+        labelBgStyle: {
+          ...(e.labelBgStyle || {}),
+          fillOpacity: focused ? 0.9 : 0,
+          opacity: focused ? 1 : 0,
+        },
+      };
+    });
+  }, [edges, hoveredNode, selectedNode]);
+
+  // Auto-fit after layout/filter changes
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const timeout = setTimeout(() => {
+      fitView({ padding: 0.45, maxZoom: 1, minZoom: 0.05 });
+    }, 80);
+    return () => clearTimeout(timeout);
+  }, [nodes.length, edges.length, fitView]);
+
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedNode(node.id);
+    setSelectedNode((prev) => (prev === node.id ? null : node.id));
   }, []);
 
   const toggleFilter = (type: string) => {
@@ -579,10 +697,22 @@ function KnowledgeGraphContent() {
     setFilterTypes(newFilters);
   };
 
+  const toggleEdgeFilter = (type: string) => {
+    const newFilters = new Set(activeEdgeTypes);
+    if (newFilters.has(type)) {
+      newFilters.delete(type);
+    } else {
+      newFilters.add(type);
+    }
+    setActiveEdgeTypes(newFilters);
+  };
+
   // Get selected node data
   const selectedNodeData = selectedNode 
     ? (() => {
-        const flowNode = flowNodes.find((n) => n.id === selectedNode);
+        const flowNode = displayNodes.find((n) => n.id === selectedNode)
+          || nodes.find((n) => n.id === selectedNode)
+          || flowNodes.find((n) => n.id === selectedNode);
         if (flowNode) {
           return {
             id: flowNode.id,
@@ -613,12 +743,16 @@ function KnowledgeGraphContent() {
       })
     ).size;
     
+    const edgeCount = edgeTypeStats
+      ? Object.values(edgeTypeStats).reduce((sum, count) => sum + count, 0)
+      : kgData.relationships.length;
+
     return {
       totalNodes: kgData.chunks.length + nodesByType['FILE'] + nodesByType['DIRECTORY'],
-      totalEdges: kgData.relationships.length,
+      totalEdges: edgeCount,
       nodesByType,
     };
-  }, [kgData]);
+  }, [kgData, edgeTypeStats]);
 
   if (loading) {
     return (
@@ -756,8 +890,14 @@ function KnowledgeGraphContent() {
               <h1 className="text-xl font-bold">Repository Knowledge Graph</h1>
             </div>
             
-            {/* Search */}
+            {/* Search + Actions */}
             <div className="flex items-center gap-4">
+              <button
+                onClick={() => fitView({ padding: 0.4, maxZoom: 1, minZoom: 0.1 })}
+                className="btn-secondary"
+              >
+                Reset View
+              </button>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -795,14 +935,47 @@ function KnowledgeGraphContent() {
             ))}
           </div>
 
+          {/* Edge Filter Bar */}
+          <div className="flex items-center gap-2 border-b border-glass-border px-4 py-2">
+            <span className="text-sm text-muted-foreground mr-2">Edges:</span>
+            {Object.entries(edgeTypeStats || {}).map(([type, count]) => (
+              <button
+                key={type}
+                onClick={() => toggleEdgeFilter(type)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
+                  activeEdgeTypes.has(type)
+                    ? 'bg-glass-bg text-foreground'
+                    : 'text-muted-foreground opacity-50'
+                )}
+              >
+                {type} ({count})
+              </button>
+            ))}
+          </div>
+
           {/* Graph */}
-          <div className="flex-1">
+          <div className="flex-1 relative overflow-hidden">
             <ReactFlow
-              nodes={nodes}
-              edges={edges}
+              nodes={displayNodes}
+              edges={displayEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
+              onNodeMouseEnter={(_, node) => setHoveredNode(node.id)}
+              onNodeMouseLeave={() => setHoveredNode(null)}
+              onPaneMouseLeave={() => setHoveredNode(null)}
+              onPaneMouseMove={() => setHoveredNode(null)}
+              onSelectionChange={({ nodes }) => {
+                const selected = nodes[0]?.id || null;
+                setSelectedNode(selected);
+              }}
+              onNodeDoubleClick={() => {
+                setSelectedNode(null);
+              }}
+              onPaneClick={() => {
+                setSelectedNode(null);
+              }}
               connectionMode={ConnectionMode.Loose}
               fitView
               fitViewOptions={{ padding: 0.1, maxZoom: 1.2, minZoom: 0.5 }}
@@ -822,11 +995,18 @@ function KnowledgeGraphContent() {
               nodesConnectable={false}
             >
               <Controls className="!bg-glass-bg !border-glass-border !rounded-lg" />
-              <MiniMap 
-                className="!bg-glass-bg !border-glass-border !rounded-lg"
-                nodeColor={(node) => nodeColors[node.data?.nodeType] || '#4b5563'}
-                maskColor="rgba(0, 0, 0, 0.6)"
-              />
+              <div className="pointer-events-none absolute bottom-0 right-0 z-20">
+                <MiniMap 
+                  className="!bg-transparent !border-glass-border !rounded-none !w-64 !h-64 !p-0 !m-0"
+                  nodeColor={(node) => nodeColors[node.data?.nodeType] || '#e5e7eb'}
+                  nodeStrokeColor={(node) => nodeColors[node.data?.nodeType] || '#f9fafb'}
+                  nodeStrokeWidth={2}
+                  nodeRadius={10}
+                  maskColor="rgba(255, 255, 255, 0.15)"
+                  pannable={false}
+                  zoomable={false}
+                />
+              </div>
               <Background 
                 color="#2a2a3e" 
                 gap={20}
@@ -895,46 +1075,18 @@ function KnowledgeGraphContent() {
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Connections</p>
                   <div className="space-y-2">
-                    {kgData && kgData.relationships
-                      .filter((rel) => {
-                        // Check if this relationship involves the selected node
-                        const sourceChunk = kgData.chunks.find(c => c.id === rel.from || c.filePath === rel.from);
-                        const targetChunk = kgData.chunks.find(c => c.id === rel.to || c.filePath === rel.to);
-                        const sourceId = sourceChunk?.id || rel.from;
-                        const targetId = targetChunk?.id || rel.to;
-                        return sourceId === selectedNodeData.id || targetId === selectedNodeData.id;
-                      })
-                      .map((rel) => {
-                        const sourceChunk = kgData.chunks.find(c => c.id === rel.from || c.filePath === rel.from);
-                        const targetChunk = kgData.chunks.find(c => c.id === rel.to || c.filePath === rel.to);
-                        const sourceId = sourceChunk?.id || rel.from;
-                        const targetId = targetChunk?.id || rel.to;
-                        const isOutgoing = sourceId === selectedNodeData.id;
-                        const otherId = isOutgoing ? targetId : sourceId;
-                        const otherNode = flowNodes.find(n => n.id === otherId);
-                        
-                        const edgeTypeMap: Record<string, string> = {
-                          imports: 'IMPORTS',
-                          calls: 'CALLS',
-                          extends: 'EXTENDS',
-                          implements: 'IMPLEMENTS',
-                          uses: 'USES',
-                          exports: 'EXPORTS',
-                        };
-                        const edgeType = edgeTypeMap[rel.type] || rel.type.toUpperCase();
-                        const edgeColors: Record<string, string> = {
-                          IMPORTS: '#f59e0b',
-                          CALLS: '#ec4899',
-                          EXTENDS: '#10b981',
-                          IMPLEMENTS: '#10b981',
-                          USES: '#6366f1',
-                          EXPORTS: '#8b5cf6',
-                        };
+                    {allFlowEdges
+                      .filter((edge) => edge.source === selectedNodeData.id || edge.target === selectedNodeData.id)
+                      .map((edge) => {
+                        const isOutgoing = edge.source === selectedNodeData.id;
+                        const otherId = isOutgoing ? edge.target : edge.source;
+                        const otherNode = nodes.find((n) => n.id === otherId);
+                        const edgeType = (edge.data as { edgeType?: string })?.edgeType || edge.label?.toString() || 'LINK';
                         const color = edgeColors[edgeType] || '#6b7280';
                         
                         return (
                           <button
-                            key={`${rel.from}-${rel.to}-${rel.type}`}
+                            key={edge.id}
                             onClick={() => {
                               if (otherNode) setSelectedNode(otherId);
                             }}
@@ -965,13 +1117,7 @@ function KnowledgeGraphContent() {
                           </button>
                         );
                       })}
-                    {kgData && kgData.relationships.filter((rel) => {
-                      const sourceChunk = kgData.chunks.find(c => c.id === rel.from || c.filePath === rel.from);
-                      const targetChunk = kgData.chunks.find(c => c.id === rel.to || c.filePath === rel.to);
-                      const sourceId = sourceChunk?.id || rel.from;
-                      const targetId = targetChunk?.id || rel.to;
-                      return sourceId === selectedNodeData.id || targetId === selectedNodeData.id;
-                    }).length === 0 && (
+                    {allFlowEdges.filter((edge) => edge.source === selectedNodeData.id || edge.target === selectedNodeData.id).length === 0 && (
                       <p className="text-xs text-muted-foreground italic">No connections</p>
                     )}
                   </div>
@@ -984,6 +1130,11 @@ function KnowledgeGraphContent() {
                   <p className="text-sm text-muted-foreground">
                     Click a node to view details
                   </p>
+                  {selectedNode && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Selected: {selectedNode}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1029,6 +1180,16 @@ function CustomNode({ data, selected }: { data: { label: string; nodeType: strin
         border: selected ? '2px solid #f97316' : 'none',
       }}
     >
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ opacity: 0, width: 6, height: 6, border: 'none' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ opacity: 0, width: 6, height: 6, border: 'none' }}
+      />
       {nodeIcons[data.nodeType] || <Box className="h-4 w-4" />}
       <span className="font-medium">{data.label}</span>
     </div>

@@ -1460,7 +1460,7 @@ async function detectGaps(
     for (const section of secs) {
       const path = [...parentPath, section.title];
       for (const block of section.blocks) {
-        // Check for [NEEDS: xxx] markers - these are specific information requests (medium severity)
+        // Check for [NEEDS: xxx] markers - specific information requests (enhancement)
         const needsMatches = block.content.match(/\[NEEDS:\s*([^\]]+)\]/gi) || [];
         for (const needsMatch of needsMatches) {
           const infoNeeded = needsMatch.replace(/\[NEEDS:\s*/i, '').replace(/\]$/, '');
@@ -1474,7 +1474,7 @@ async function detectGaps(
           });
         }
         
-        // Check for NOT APPLICABLE - this shouldn't happen with new prompts, but flag if it does
+        // Check for NOT APPLICABLE - flag for adaptation (enhancement)
         const notApplicableMatch = block.content.match(/\[NOT APPLICABLE\]/i);
         if (notApplicableMatch) {
           concreteGaps.push({
@@ -1511,31 +1511,31 @@ async function detectGaps(
             id: `gap-hallucination-${concreteGaps.length}`,
             sectionId: section.id,
             sectionTitle: section.title,
-            severity: 'high',
+            severity: 'critical',
             description: `Section may contain fabricated content not from actual codebase`,
             suggestion: `Review this section - it may describe features that don't exist`,
           });
         }
         
-        // Count [TBD] occurrences - only flag if many (some TBDs are normal)
+        // Count [TBD] occurrences - placeholders indicate missing data
         const tbdMatches = block.content.match(/\[TBD\]/gi) || [];
         if (tbdMatches.length >= 5) {
-          // Many TBDs = high severity (likely a metrics table)
+          // Many TBDs = missing required data
+          concreteGaps.push({
+            id: `gap-tbd-${concreteGaps.length}`,
+            sectionId: section.id,
+            sectionTitle: section.title,
+            severity: 'critical',
+            description: `Contains ${tbdMatches.length} placeholder values that need actual measurements`,
+            suggestion: `Provide actual values for metrics, or upload evaluation results`,
+          });
+        } else if (tbdMatches.length >= 2) {
+          // Some TBDs = missing values
           concreteGaps.push({
             id: `gap-tbd-${concreteGaps.length}`,
             sectionId: section.id,
             sectionTitle: section.title,
             severity: 'high',
-            description: `Contains ${tbdMatches.length} placeholder values that need actual measurements`,
-            suggestion: `Provide actual values for metrics, or upload evaluation results`,
-          });
-        } else if (tbdMatches.length >= 2) {
-          // Some TBDs = medium severity
-          concreteGaps.push({
-            id: `gap-tbd-${concreteGaps.length}`,
-            sectionId: section.id,
-            sectionTitle: section.title,
-            severity: 'medium',
             description: `Contains ${tbdMatches.length} values that need actual data`,
             suggestion: `Provide the specific values when available`,
           });
@@ -1544,15 +1544,16 @@ async function detectGaps(
         
         // Check for tables that are mostly empty
         const tableRowMatches = block.content.match(/\|[^|]+\|/g) || [];
-        const tbdInTable = tableRowMatches.filter(row => row.includes('[TBD]') || row.includes('Not available')).length;
+        const tablePlaceholderPattern = /\[TBD\]|not available|n\/a|unknown/i;
+        const tbdInTable = tableRowMatches.filter(row => tablePlaceholderPattern.test(row)).length;
         if (tableRowMatches.length > 4 && tbdInTable > tableRowMatches.length * 0.7) {
-          // More than 70% of table rows have TBD = high severity
-          if (!concreteGaps.find(g => g.sectionId === section.id && g.severity === 'high')) {
+          // More than 70% of table rows are placeholders = missing data
+          if (!concreteGaps.find(g => g.sectionId === section.id && (g.severity === 'critical' || g.severity === 'high'))) {
             concreteGaps.push({
               id: `gap-table-${concreteGaps.length}`,
               sectionId: section.id,
               sectionTitle: section.title,
-              severity: 'high',
+              severity: 'critical',
               description: `Metrics table needs actual values from testing/evaluation`,
               suggestion: `Upload evaluation results or provide metrics data`,
             });
@@ -1591,7 +1592,7 @@ async function detectGaps(
                 id: `gap-contradict-${concreteGaps.length}`,
                 sectionId: section.id,
                 sectionTitle: section.title,
-                severity: 'medium',
+                severity: 'high',
                 description: `Contains a claim with missing data`,
                 suggestion: `Provide the actual metric value`,
               });

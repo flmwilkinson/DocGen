@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@docgen/shared'],
+  transpilePackages: ['@docgen/shared', 'docx'],
   images: {
     domains: ['localhost'],
   },

@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, List
 from contextlib import redirect_stdout, redirect_stderr
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
@@ -23,6 +24,15 @@ app = FastAPI(
     title="DocGen.AI Python Sandbox",
     description="Sandboxed Python execution service",
     version="0.1.0",
+)
+
+# Add CORS middleware to allow requests from the web app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict to specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Configuration
@@ -38,6 +48,7 @@ class ExecuteRequest(BaseModel):
     code: str
     timeout_sec: int = 60
     attached_files: Optional[List[str]] = None
+    execution_id: Optional[str] = None  # Optional: use existing execution directory
 
 
 class ExecuteResponse(BaseModel):
@@ -67,7 +78,7 @@ async def execute_code(request: ExecuteRequest):
     
     Generated files (plots, CSVs) are saved and returned.
     """
-    execution_id = str(uuid.uuid4())
+    execution_id = request.execution_id or str(uuid.uuid4())
     work_dir = os.path.join(SANDBOX_DIR, execution_id)
     
     try:
@@ -208,6 +219,89 @@ async def cleanup_execution(execution_id: str):
         shutil.rmtree(work_dir)
     
     return {"status": "cleaned", "execution_id": execution_id}
+
+
+class TransferFilesRequest(BaseModel):
+    """Request to transfer files to sandbox for code execution"""
+    execution_id: str
+    files: List[Dict[str, str]]  # List of {path: str, content: str} or {path: str, url: str}
+
+
+@app.post("/transfer-files")
+async def transfer_files(request: TransferFilesRequest):
+    """
+    Transfer files to the sandbox for use in code execution.
+    
+    Files can be provided as:
+    - Direct content: {"path": "data/file.csv", "content": "a,b,c\\n1,2,3"}
+    - URL to fetch: {"path": "data/file.csv", "url": "https://..."}
+    
+    Files are stored in /data/{path} within the sandbox.
+    """
+    import requests
+    import base64
+    
+    work_dir = os.path.join(SANDBOX_DIR, request.execution_id)
+    data_dir = os.path.join(work_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    
+    transferred = []
+    errors = []
+    
+    for file_info in request.files:
+        file_path = file_info.get("path", "")
+        if not file_path:
+            continue
+            
+        # Create subdirectories if needed
+        full_path = os.path.join(data_dir, file_path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        
+        try:
+            if "content" in file_info:
+                # Direct content - may be base64 encoded for binary files
+                content = file_info["content"]
+                if file_info.get("encoding") == "base64":
+                    content = base64.b64decode(content)
+                    with open(full_path, "wb") as f:
+                        f.write(content)
+                else:
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                        
+            elif "url" in file_info:
+                # Fetch from URL
+                url = file_info["url"]
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
+                
+                # Detect if binary
+                content_type = response.headers.get("content-type", "")
+                if "text" in content_type or file_path.endswith(('.csv', '.json', '.txt', '.md')):
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(response.text)
+                else:
+                    with open(full_path, "wb") as f:
+                        f.write(response.content)
+            else:
+                errors.append({"path": file_path, "error": "No content or url provided"})
+                continue
+                
+            transferred.append({
+                "path": file_path,
+                "full_path": full_path,
+                "size": os.path.getsize(full_path)
+            })
+            
+        except Exception as e:
+            errors.append({"path": file_path, "error": str(e)})
+    
+    return {
+        "execution_id": request.execution_id,
+        "data_dir": data_dir,
+        "transferred": transferred,
+        "errors": errors
+    }
 
 
 def get_mime_type(filename: str) -> str:

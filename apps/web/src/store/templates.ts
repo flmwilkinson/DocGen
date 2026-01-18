@@ -353,9 +353,24 @@ export const useTemplatesStore = create<TemplatesState>()(
     }),
     {
       name: 'docgen-templates',
+      // Skip automatic hydration to prevent blocking navigation
+      skipHydration: true,
     }
   )
 );
+
+// Trigger hydration only once on the client side
+if (typeof window !== 'undefined') {
+  const hydrateStore = () => {
+    useTemplatesStore.persist.rehydrate();
+  };
+  
+  if ('requestIdleCallback' in window) {
+    (window as any).requestIdleCallback(hydrateStore, { timeout: 500 });
+  } else {
+    setTimeout(hydrateStore, 10);
+  }
+}
 
 /**
  * Flatten template sections into a list of blocks with their prompts

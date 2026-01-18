@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -29,9 +29,12 @@ export default function ProjectsPage() {
   const projects = useProjectsStore((state) => state.projects);
   const deleteProject = useProjectsStore((state) => state.deleteProject);
 
-  // Sort projects by updatedAt (most recent first)
-  const sortedProjects = [...projects].sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  // Memoize sorted projects to avoid re-sorting on every render
+  const sortedProjects = useMemo(
+    () => [...projects].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    ),
+    [projects]
   );
 
   const handleDeleteProject = (projectId: string) => {

@@ -29,32 +29,103 @@ export interface ChartResult {
   error?: string;
   executionTimeMs: number;
   code: string;
+  stdout?: string; // Execution output (summary stats, headers, etc.)
+  stderr?: string; // Errors/warnings
+  structuredResult?: Record<string, unknown>; // Structured results (schema info, etc.)
 }
 
 // Get sandbox URL from environment or use default
 const SANDBOX_URL = process.env.NEXT_PUBLIC_SANDBOX_PYTHON_URL || 'http://localhost:8001';
+
+export interface TransferredFile {
+  path: string;
+  fullPath: string;
+  size: number;
+}
+
+export interface TransferFilesResult {
+  executionId: string;
+  dataDir: string;
+  transferred: TransferredFile[];
+  errors: Array<{ path: string; error: string }>;
+}
+
+/**
+ * Transfer files to the sandbox for use in code execution.
+ * Files can be provided as direct content or URLs to fetch.
+ */
+export async function transferFilesToSandbox(
+  executionId: string,
+  files: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>
+): Promise<TransferFilesResult> {
+  try {
+    console.log(`[Sandbox] Transferring ${files.length} files for execution ${executionId}`);
+    
+    const response = await fetch(`${SANDBOX_URL}/transfer-files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        execution_id: executionId,
+        files: files.map(f => ({
+          path: f.path,
+          content: f.content,
+          url: f.url,
+          encoding: f.encoding,
+        })),
+      }),
+      signal: AbortSignal.timeout(60000), // 60s timeout for large files
+    });
+
+    if (!response.ok) {
+      throw new Error(`Transfer failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log(`[Sandbox] Transferred ${result.transferred?.length || 0} files, ${result.errors?.length || 0} errors`);
+    
+    if (result.errors?.length > 0) {
+      console.warn(`[Sandbox] Transfer errors:`, result.errors);
+    }
+    
+    return {
+      executionId: result.execution_id,
+      dataDir: result.data_dir,
+      transferred: result.transferred || [],
+      errors: result.errors || [],
+    };
+  } catch (error) {
+    console.error(`[Sandbox] Transfer files failed:`, error);
+    throw error;
+  }
+}
 
 /**
  * Check if the sandbox service is available
  */
 export async function isSandboxAvailable(): Promise<boolean> {
   try {
+    console.log(`[Sandbox] Checking availability at ${SANDBOX_URL}/health`);
     const response = await fetch(`${SANDBOX_URL}/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(3000),
     });
-    return response.ok;
-  } catch {
+    const available = response.ok;
+    console.log(`[Sandbox] Available: ${available}`);
+    return available;
+  } catch (error) {
+    console.warn(`[Sandbox] Not available:`, error instanceof Error ? error.message : error);
     return false;
   }
 }
 
 /**
  * Execute Python code in the sandbox
+ * @param executionId - Optional execution ID to use existing directory (for file transfers)
  */
 export async function executeCode(
   code: string,
-  timeoutSec: number = 60
+  timeoutSec: number = 60,
+  executionId?: string
 ): Promise<ExecutionResult> {
   const response = await fetch(`${SANDBOX_URL}/execute`, {
     method: 'POST',
@@ -64,6 +135,7 @@ export async function executeCode(
     body: JSON.stringify({
       code,
       timeout_sec: timeoutSec,
+      execution_id: executionId,
     }),
     signal: AbortSignal.timeout((timeoutSec + 10) * 1000),
   });
@@ -123,15 +195,36 @@ export async function downloadFileAsBase64(
 /**
  * Generate a chart using Python code execution
  * This is the main function used by the LLM agent
+ * 
+ * @param code - Python code to execute
+ * @param context - Optional context including data files to transfer
  */
 export async function generateChart(
   code: string,
   context?: {
     title?: string;
     dataDescription?: string;
+    dataFiles?: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>;
   }
 ): Promise<ChartResult> {
   const startTime = Date.now();
+  
+  // Generate execution ID for this chart
+  const executionId = `chart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Transfer data files if provided
+  let dataDir = '';
+  if (context?.dataFiles && context.dataFiles.length > 0) {
+    try {
+      console.log(`[Sandbox] Transferring ${context.dataFiles.length} data files for chart`);
+      const transferResult = await transferFilesToSandbox(executionId, context.dataFiles);
+      dataDir = transferResult.dataDir;
+      console.log(`[Sandbox] Files available at: ${dataDir}`);
+    } catch (error) {
+      console.warn(`[Sandbox] File transfer failed:`, error);
+      // Continue without files - code may use inline data
+    }
+  }
   
   // Wrap the code to ensure proper chart saving
   const wrappedCode = `
@@ -139,7 +232,37 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import os
+
+# Data directory where transferred files are located
+DATA_DIR = "${dataDir || '/tmp/sandbox/data'}"
+
+# Helper function to load data files
+def load_data(filename):
+    """Load a data file from the DATA_DIR"""
+    path = os.path.join(DATA_DIR, filename)
+    
+    # Debug: list available files
+    if not os.path.exists(path):
+        available_files = []
+        for root, dirs, files in os.walk(DATA_DIR):
+            for f in files:
+                rel_path = os.path.relpath(os.path.join(root, f), DATA_DIR)
+                available_files.append(rel_path)
+        print(f"DEBUG: Looking for {filename} in {DATA_DIR}")
+        print(f"DEBUG: Available files: {available_files[:10]}")  # Show first 10
+    
+    if os.path.exists(path):
+        if filename.endswith('.csv'):
+            return pd.read_csv(path)
+        elif filename.endswith('.xlsx') or filename.endswith('.xls'):
+            return pd.read_excel(path)
+        elif filename.endswith('.json'):
+            return pd.read_json(path)
+        elif filename.endswith('.parquet'):
+            return pd.read_parquet(path)
+    raise FileNotFoundError(f"File not found: {path}. DATA_DIR={DATA_DIR}, filename={filename}")
 
 # Set style
 plt.style.use('dark_background')
@@ -163,7 +286,7 @@ if plt.get_fignums():
 `;
 
   try {
-    const result = await executeCode(wrappedCode, 30);
+    const result = await executeCode(wrappedCode, 60, executionId); // Use same execution ID as file transfer
     
     // Check for errors
     if (result.exitCode !== 0) {
@@ -172,29 +295,39 @@ if plt.get_fignums():
         error: result.stderr || 'Code execution failed',
         executionTimeMs: Date.now() - startTime,
         code,
+        stdout: result.stdout, // Include stdout even on error (may have useful info)
+        stderr: result.stderr,
+        structuredResult: result.structuredResult,
       };
     }
     
-    // Find the chart image
-    const chartFile = result.generatedFiles.find(
+    // Find ALL chart images (support multiple charts)
+    const chartFiles = result.generatedFiles.filter(
       f => f.filename === 'chart.png' || f.mimeType.startsWith('image/')
     );
     
-    if (!chartFile) {
+    if (chartFiles.length === 0) {
       return {
         success: false,
         error: 'No chart image was generated',
         executionTimeMs: Date.now() - startTime,
         code,
+        stdout: result.stdout, // Include stdout to show what happened
+        stderr: result.stderr,
+        structuredResult: result.structuredResult,
       };
     }
     
-    // Extract execution ID from path
+    // For now, return the first chart (we can extend to support multiple later)
+    // But include all execution outputs so LLM can see data analysis results
+    const chartFile = chartFiles[0];
+    
+    // Extract execution ID from path (use different variable name to avoid shadowing)
     const pathParts = chartFile.path.split('/');
-    const executionId = pathParts[pathParts.length - 2];
+    const fileExecutionId = pathParts[pathParts.length - 2];
     
     // Download the image as base64
-    const base64Data = await downloadFileAsBase64(executionId, chartFile.filename);
+    const base64Data = await downloadFileAsBase64(fileExecutionId, chartFile.filename);
     
     return {
       success: true,
@@ -202,6 +335,11 @@ if plt.get_fignums():
       imageMimeType: chartFile.mimeType,
       executionTimeMs: Date.now() - startTime,
       code,
+      stdout: result.stdout, // Include stdout (summary stats, headers, etc.)
+      stderr: result.stderr, // Include stderr (warnings, etc.)
+      structuredResult: result.structuredResult, // Include structured results (schema info, etc.)
+      // Note: chartFiles.length > 1 indicates multiple charts were generated
+      // We can extend this later to return an array of images
     };
   } catch (error) {
     return {

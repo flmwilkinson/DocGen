@@ -1,9 +1,11 @@
 /**
  * Hook to monitor generation runs and show notifications
  * This runs globally to track all running generations
+ * 
+ * OPTIMIZED: Uses store subscription with selector to minimize re-renders
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useProjectsStore } from '@/store/projects';
 import { notificationService } from '@/lib/notifications';
 import { toast } from 'sonner';
@@ -11,13 +13,22 @@ import { useRouter } from 'next/navigation';
 
 export function useGenerationNotifications() {
   const router = useRouter();
-  const runs = useProjectsStore((state) => state.runs);
-  const store = useProjectsStore.getState();
+  const initializedRef = useRef(false);
+  
+  // Only subscribe to run status changes, not the full runs array
+  // This returns a stable string that only changes when run statuses change
+  const runStatusKey = useProjectsStore((state) => 
+    state.runs.map(r => `${r.id}:${r.status}`).join(',')
+  );
 
   useEffect(() => {
+    // Only initialize once
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    
     // Expose store state to notification service
     if (typeof window !== 'undefined') {
-      (window as any).__getProjectsStoreState = () => store;
+      (window as any).__getProjectsStoreState = () => useProjectsStore.getState();
       
       // Set up global notification handler
       (window as any).__showGenerationNotification = (notification: {
@@ -54,7 +65,8 @@ export function useGenerationNotifications() {
     }
 
     // Check for any running generations on mount and start tracking them
-    const runningRuns = runs.filter(r => r.status === 'RUNNING');
+    const store = useProjectsStore.getState();
+    const runningRuns = store.runs.filter(r => r.status === 'RUNNING');
     runningRuns.forEach(run => {
       const project = store.getProject(run.projectId);
       if (project) {
@@ -73,16 +85,15 @@ export function useGenerationNotifications() {
         delete (window as any).__getProjectsStoreState;
       }
     };
-  }, []); // Only run on mount
+  }, [router]);
 
-  // Monitor runs for status changes
+  // Monitor runs for status changes - only triggers when runStatusKey changes
   useEffect(() => {
-    runs.forEach(run => {
+    const store = useProjectsStore.getState();
+    store.runs.forEach(run => {
       if (run.status === 'COMPLETED' || run.status === 'FAILED') {
-        // Stop tracking completed/failed runs
         notificationService.stopTracking(run.id);
       } else if (run.status === 'RUNNING') {
-        // Start tracking if not already tracked
         const project = store.getProject(run.projectId);
         if (project) {
           notificationService.startTracking(
@@ -94,6 +105,6 @@ export function useGenerationNotifications() {
         }
       }
     });
-  }, [runs, store]);
+  }, [runStatusKey]);
 }
 

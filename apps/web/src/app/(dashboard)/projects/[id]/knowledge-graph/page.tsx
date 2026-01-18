@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ReactFlow, {
@@ -28,11 +28,17 @@ import {
   Search,
   Filter,
   Loader2,
+  Sparkles,
+  Table2,
+  FileSpreadsheet,
+  FileCode,
+  Database,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useProjectsStore } from '@/store/projects';
+import { useProjectsStore, selectProject } from '@/store/projects';
 import { buildCodeIntelligence, type CodeIntelligenceResult, type CodeChunk, type CodeRelationship } from '@/lib/code-intelligence';
-import { getCachedKnowledgeBase, getCachedCodeIntelligence, serializeCodeIntelligence } from '@/lib/github-cache';
+import { getCachedKnowledgeBase, getCachedCodeIntelligence } from '@/lib/github-cache';
 import { useSession } from 'next-auth/react';
 import { getGitHubTokenFromSession } from '@/lib/github-auth';
 import OpenAI from 'openai';
@@ -46,6 +52,11 @@ const nodeColors: Record<string, string> = {
   INTERFACE: '#06b6d4',
   CONSTANT: '#14b8a6',
   CONFIG: '#a855f7',
+  // Data & Statistical files
+  DATASET: '#ef4444',       // Red for data files (csv, parquet, xlsx)
+  NOTEBOOK: '#f97316',      // Orange for Jupyter notebooks
+  STATISTICAL: '#22c55e',   // Green for SAS, R, Stata
+  SQL: '#3b82f6',           // Blue for SQL files
 };
 
 const edgeColors: Record<string, string> = {
@@ -64,12 +75,18 @@ const nodeIcons: Record<string, React.ReactNode> = {
   FILE: <File className="h-4 w-4" />,
   CLASS: <Box className="h-4 w-4" />,
   FUNCTION: <FunctionSquare className="h-4 w-4" />,
+  MODULE: <FileCode className="h-4 w-4" />,
+  DATASET: <Table2 className="h-4 w-4" />,
+  NOTEBOOK: <BookOpen className="h-4 w-4" />,
+  STATISTICAL: <FileSpreadsheet className="h-4 w-4" />,
+  SQL: <Database className="h-4 w-4" />,
+  CONFIG: <File className="h-4 w-4" />,
 };
 
 function KnowledgeGraphContent() {
   const params = useParams();
   const projectId = params.id as string;
-  const project = useProjectsStore((state) => state.getProject(projectId));
+  const project = useProjectsStore(selectProject(projectId));
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -77,21 +94,79 @@ function KnowledgeGraphContent() {
   const [activeEdgeTypes, setActiveEdgeTypes] = useState<Set<string>>(new Set());
   const [kgData, setKgData] = useState<CodeIntelligenceResult | null>(null);
   const [knowledgeBase, setKnowledgeBase] = useState<CodeKnowledgeBase | null>(null);
+  const [nodeSummaries, setNodeSummaries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [repoUpdated, setRepoUpdated] = useState(false);
   const [wasCached, setWasCached] = useState(false);
   const [debugSteps, setDebugSteps] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState<string>('');
+  const [isGeneratingSummaries, setIsGeneratingSummaries] = useState(false);
+  const [summaryProgress, setSummaryProgress] = useState<{ current: number; total: number } | null>(null);
   const updateProject = useProjectsStore((state) => state.updateProject);
   const { data: session } = useSession();
   const { fitView } = useReactFlow();
+  
+  // AbortController for cancelling async operations on unmount
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Cleanup on unmount - cancel any pending operations
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
   
   const addDebugStep = useCallback((step: string) => {
     console.log('[KG Debug]', step);
     setDebugSteps(prev => [...prev, `${new Date().toLocaleTimeString()}: ${step}`]);
     setCurrentStep(step);
   }, []);
+  
+  // Generate AI summaries for all files
+  const handleGenerateSummaries = useCallback(async () => {
+    if (!kgData || !knowledgeBase || isGeneratingSummaries) return;
+    
+    setIsGeneratingSummaries(true);
+    try {
+      // Get all unique file paths that need summaries
+      const filePaths = knowledgeBase.files
+        .filter(f => !nodeSummaries[f.path]) // Only files without summaries
+        .map(f => f.path);
+      
+      if (filePaths.length === 0) {
+        addDebugStep('All files already have summaries');
+        return;
+      }
+      
+      setSummaryProgress({ current: 0, total: filePaths.length });
+      addDebugStep(`Generating summaries for ${filePaths.length} files...`);
+      
+      let count = 0;
+      const newSummaries = await kgData.generateSummaries(filePaths, (path, summary) => {
+        count++;
+        setSummaryProgress({ current: count, total: filePaths.length });
+        setNodeSummaries(prev => ({ ...prev, [path]: summary }));
+      });
+      
+      // Save to project
+      const allSummaries = { ...nodeSummaries };
+      newSummaries.forEach((summary, path) => {
+        allSummaries[path] = summary;
+      });
+      
+      updateProject(projectId, { nodeSummaries: allSummaries });
+      addDebugStep(`Generated ${newSummaries.size} summaries`);
+    } catch (error) {
+      console.error('[KG] Failed to generate summaries:', error);
+      addDebugStep(`Summary generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsGeneratingSummaries(false);
+      setSummaryProgress(null);
+    }
+  }, [kgData, knowledgeBase, nodeSummaries, isGeneratingSummaries, projectId, updateProject, addDebugStep]);
 
   // Load knowledge graph from actual repo
   const loadKnowledgeGraph = useCallback(async (forceRefresh: boolean = false) => {
@@ -100,12 +175,22 @@ function KnowledgeGraphContent() {
       setLoading(false);
       return;
     }
+    
+    // Cancel any previous operation
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     try {
       setLoading(true);
       setError(null);
       setDebugSteps([]);
       setCurrentStep('Initializing...');
+      
+      // Check if aborted before continuing
+      if (signal.aborted) return;
       
       addDebugStep(`Starting knowledge graph build for: ${project.repoUrl}`);
       addDebugStep(`Force refresh: ${forceRefresh}`);
@@ -128,29 +213,23 @@ function KnowledgeGraphContent() {
       const githubToken = getGitHubTokenFromSession(session);
       addDebugStep(`GitHub OAuth token: ${githubToken ? 'present' : 'missing'}`);
 
-      // Run server-side GitHub access diagnostics
-      try {
-        const debugRes = await fetch(
-          `/api/github/debug?repoUrl=${encodeURIComponent(project.repoUrl)}`
-        );
-        const debugJson = await debugRes.json();
+      // Run server-side GitHub access diagnostics (non-blocking - don't await)
+      fetch(`/api/github/debug?repoUrl=${encodeURIComponent(project.repoUrl)}`)
+        .then(res => res.json())
+        .then(debugJson => {
+          if (signal.aborted) return;
         addDebugStep(
           `GitHub debug: token=${debugJson.hasToken ? 'yes' : 'no'}, ` +
           `user=${debugJson.userLogin || 'none'}, ` +
           `repoStatus=${debugJson.repoStatus || 'n/a'}`
         );
-        if (debugJson.userScopes) {
-          addDebugStep(`GitHub scopes: ${debugJson.userScopes}`);
-        }
-        if (debugJson.repoError) {
-          addDebugStep(`GitHub repo error: ${debugJson.repoError}`);
-        }
-        if (debugJson.userError) {
-          addDebugStep(`GitHub user error: ${debugJson.userError}`);
-        }
-      } catch (error: any) {
-        addDebugStep(`GitHub debug failed: ${error?.message || 'unknown error'}`);
-      }
+        })
+        .catch(() => {
+          // Ignore debug errors - not critical
+        });
+
+      // Check abort before heavy operation
+      if (signal.aborted) return;
 
       // Get cached or fresh knowledge base
       addDebugStep('Step 1: Checking cache and fetching knowledge base...');
@@ -159,12 +238,16 @@ function KnowledgeGraphContent() {
         project.lastCommitHash,
         project.cachedKnowledgeBase,
         (msg) => {
+          if (signal.aborted) return;
           addDebugStep(`KB: ${msg}`);
           setCurrentStep(msg);
         },
         forceRefresh,
         githubToken
       );
+      
+      // Check abort after heavy operation
+      if (signal.aborted) return;
       setKnowledgeBase(knowledgeBase);
       
       setWasCached(kbCached);
@@ -177,6 +260,9 @@ function KnowledgeGraphContent() {
         throw new Error('No source code files found in repository. Make sure the repository contains code files (Python, TypeScript, JavaScript, etc.)');
       }
       
+      // Check abort before heavy operation
+      if (signal.aborted) return;
+      
       // Get cached or fresh code intelligence
       addDebugStep('Step 2: Building code intelligence (parsing chunks and relationships)...');
       setCurrentStep('Parsing code into semantic chunks...');
@@ -186,10 +272,19 @@ function KnowledgeGraphContent() {
         openaiClient,
         kbCached && !forceRefresh,
         (msg) => {
+          if (signal.aborted) return;
           addDebugStep(`CI: ${msg}`);
           setCurrentStep(msg);
+        },
+        {
+          repoUrl: project.repoUrl,
+          commitHash,
+          useEmbeddings: true, // Accuracy-first RAG
         }
       );
+      
+      // Check abort after code intelligence
+      if (signal.aborted) return;
       
       addDebugStep(`Code intelligence built: ${codeIntelligence.chunks.length} chunks, ${codeIntelligence.relationships.length} relationships`);
       addDebugStep(`Cached: ${ciCached}`);
@@ -201,16 +296,61 @@ function KnowledgeGraphContent() {
       setKgData(codeIntelligence);
       setCurrentStep('Complete!');
       
-      // Update project with cached data if it was fresh
+      // Auto-generate node summaries once (accuracy-first) - skip if aborted
+      if (!signal.aborted) {
+        try {
+          const existingSummaries = project.nodeSummaries || {};
+          const missingPaths = knowledgeBase.files
+            .map((f) => f.path)
+            .filter((path) => !existingSummaries[path]);
+
+          if (missingPaths.length > 0 && !signal.aborted) {
+            addDebugStep(`Generating ${missingPaths.length} node summaries...`);
+            setCurrentStep('Generating node summaries...');
+            let count = 0;
+            const newSummaries = await codeIntelligence.generateSummaries(missingPaths, (path, summary) => {
+              if (signal.aborted) return;
+              count += 1;
+              setSummaryProgress({ current: count, total: missingPaths.length });
+              setNodeSummaries((prev) => ({ ...prev, [path]: summary }));
+            });
+            
+            if (!signal.aborted) {
+              const merged = { ...existingSummaries };
+              newSummaries.forEach((summary, path) => {
+                merged[path] = summary;
+              });
+              updateProject(projectId, { nodeSummaries: merged });
+              addDebugStep(`Generated ${newSummaries.size} node summaries`);
+            }
+          }
+        } catch (error) {
+          if (!signal.aborted) {
+            console.error('[KG] Auto summary generation failed:', error);
+            addDebugStep(`Auto summary generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        } finally {
+          if (!signal.aborted) {
+            setIsGeneratingSummaries(false);
+            setSummaryProgress(null);
+          }
+        }
+      }
+      
+      // Update project metadata only (full data stored in IndexedDB)
       if (!kbCached || !ciCached || forceRefresh) {
-        addDebugStep('Updating project cache...');
+        addDebugStep('Updating project cache metadata...');
+        try {
         updateProject(projectId, {
           lastCommitHash: commitHash || undefined,
           lastKnowledgeGraphUpdate: new Date(),
-          cachedKnowledgeBase: knowledgeBase,
-          cachedCodeIntelligence: serializeCodeIntelligence(codeIntelligence),
         });
-        addDebugStep('Cache updated successfully');
+          addDebugStep('Cache metadata updated successfully');
+        } catch (error) {
+          console.error('[KG] Failed to update cache:', error);
+          addDebugStep(`Cache update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          // Continue anyway - cache is optional
+        }
       }
       
       addDebugStep('Knowledge graph loaded successfully!');
@@ -240,6 +380,14 @@ function KnowledgeGraphContent() {
     }
   }, [project?.repoUrl, projectId, updateProject, addDebugStep]);
 
+  // Load node summaries from project state
+  useEffect(() => {
+    if (project?.nodeSummaries) {
+      setNodeSummaries(project.nodeSummaries);
+      console.log(`[KG] Loaded ${Object.keys(project.nodeSummaries).length} node summaries from project`);
+    }
+  }, [project?.nodeSummaries]);
+
   // Load knowledge graph on mount or when project changes
   useEffect(() => {
     if (project?.repoUrl) {
@@ -253,6 +401,8 @@ function KnowledgeGraphContent() {
     if (!kgData) {
       return { flowNodes: [], flowEdges: [] };
     }
+    
+    // nodeSummaries is used in the node creation below
 
     // Convert code chunks to nodes
     const chunkNodes: Array<{ id: string; chunk: CodeChunk; depth: number }> = [];
@@ -385,20 +535,42 @@ function KnowledgeGraphContent() {
       // File nodes
       ...Array.from(fileNodes.values()).map((node) => {
         const kbFile = knowledgeBase?.files?.find((f) => f.path === node.path);
+        const summary = nodeSummaries[node.path];
+        const ext = node.path.split('.').pop()?.toLowerCase() || '';
+        
+        // Determine node type based on file extension
+        let fileNodeType = 'FILE';
+        if (['csv', 'tsv', 'parquet', 'xlsx', 'xls', 'feather', 'arrow'].includes(ext)) {
+          fileNodeType = 'DATASET';
+        } else if (ext === 'ipynb') {
+          fileNodeType = 'NOTEBOOK';
+        } else if (['sas', 'r', 'rmd', 'do', 'ado', 'mata', 'sps'].includes(ext)) {
+          fileNodeType = 'STATISTICAL';
+        } else if (['sql', 'ddl', 'dml'].includes(ext)) {
+          fileNodeType = 'SQL';
+        } else if (['yaml', 'yml', 'json', 'toml', 'env', 'ini', 'cfg'].includes(ext)) {
+          fileNodeType = 'CONFIG';
+        }
+        
         return ({
         id: node.id,
         type: 'custom',
         position: nodePositions[node.id] || { x: 0, y: 0 },
         data: {
           label: node.path.split('/').pop() || node.path,
-          nodeType: 'FILE',
+          nodeType: fileNodeType,
           filePath: node.path,
-          metadata: { language: kbFile?.language || kgData.chunks.find(c => c.filePath === node.path)?.language },
+          metadata: { 
+            language: kbFile?.language || kgData.chunks.find(c => c.filePath === node.path)?.language,
+            summary: summary, // Add node summary from evidence-first generation
+          },
         },
       });
       }),
       // Chunk nodes (classes, functions)
-      ...chunkNodes.map(({ id, chunk }) => ({
+      ...chunkNodes.map(({ id, chunk }) => {
+        const summary = nodeSummaries[chunk.filePath];
+        return {
         id,
         type: 'custom',
         position: nodePositions[id] || { x: 0, y: 0 },
@@ -411,9 +583,11 @@ function KnowledgeGraphContent() {
             endLine: chunk.endLine,
             language: chunk.language,
             signature: chunk.signature,
+              summary: summary, // Add node summary from evidence-first generation
           },
         },
-      })),
+        };
+      }),
     ].filter((node) => {
       // Apply filters
       if (searchQuery && !node.data.label.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -602,7 +776,7 @@ function KnowledgeGraphContent() {
       : allFlowEdges;
 
     return { flowNodes: allFlowNodes, flowEdges: filteredEdges, edgeTypeStats: edgeStats, allFlowEdges };
-  }, [kgData, searchQuery, filterTypes, activeEdgeTypes]);
+  }, [kgData, knowledgeBase, nodeSummaries, searchQuery, filterTypes, activeEdgeTypes]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(flowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowEdges);
@@ -893,6 +1067,18 @@ function KnowledgeGraphContent() {
             {/* Search + Actions */}
             <div className="flex items-center gap-4">
               <button
+                onClick={handleGenerateSummaries}
+                disabled={isGeneratingSummaries || !kgData}
+                className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                title="Generate AI summaries for all files in the knowledge graph"
+              >
+                <Sparkles className="h-4 w-4" />
+                {isGeneratingSummaries 
+                  ? `Generating ${summaryProgress?.current || 0}/${summaryProgress?.total || '...'}`
+                  : `Generate Summaries${Object.keys(nodeSummaries).length > 0 ? ` (${Object.keys(nodeSummaries).length} done)` : ''}`
+                }
+              </button>
+              <button
                 onClick={() => fitView({ padding: 0.4, maxZoom: 1, minZoom: 0.1 })}
                 className="btn-secondary"
               >
@@ -1068,6 +1254,18 @@ function KnowledgeGraphContent() {
                           <p className="text-sm font-mono text-xs">{selectedNodeData.metadata.signature}</p>
                         </div>
                       )}
+                      {selectedNodeData.metadata.summary && (
+                        <div className="mt-3 pt-3 border-t border-glass-border">
+                          <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide flex items-center gap-1">
+                            <Sparkles className="h-3 w-3" />
+                            AI Summary
+                          </p>
+                          <p className="text-xs text-foreground leading-relaxed">{selectedNodeData.metadata.summary}</p>
+                          <p className="text-[10px] text-muted-foreground mt-1 italic">
+                            Generated from code analysis during documentation
+                          </p>
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -1168,7 +1366,9 @@ export default function KnowledgeGraphPage() {
   );
 }
 
-function CustomNode({ data, selected }: { data: { label: string; nodeType: string; filePath?: string }; selected?: boolean }) {
+function CustomNode({ data, selected }: { data: { label: string; nodeType: string; filePath?: string; metadata?: { summary?: string } }; selected?: boolean }) {
+  const hasSummary = data.metadata?.summary;
+  
   return (
     <div
       className={cn(
@@ -1179,6 +1379,7 @@ function CustomNode({ data, selected }: { data: { label: string; nodeType: strin
         backgroundColor: nodeColors[data.nodeType] || '#4b5563',
         border: selected ? '2px solid #f97316' : 'none',
       }}
+      title={hasSummary ? "Has AI-generated summary (click to view)" : undefined}
     >
       <Handle
         type="target"
@@ -1192,6 +1393,9 @@ function CustomNode({ data, selected }: { data: { label: string; nodeType: strin
       />
       {nodeIcons[data.nodeType] || <Box className="h-4 w-4" />}
       <span className="font-medium">{data.label}</span>
+      {hasSummary && (
+        <Sparkles className="h-3 w-3 text-yellow-300 shrink-0" title="Has AI summary" />
+      )}
     </div>
   );
 }

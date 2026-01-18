@@ -26,14 +26,28 @@ export default function SettingsPage() {
 
   const [isMasked, setIsMasked] = useState(false);
 
-  // Load API key from localStorage on mount
+  // Load API key from localStorage on mount - use requestIdleCallback to avoid blocking
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const storedKey = localStorage.getItem('openai_api_key') || '';
-      if (storedKey) {
-        // Show masked version
-        setApiKey('•'.repeat(Math.min(storedKey.length, 20)));
-        setIsMasked(true);
+      // Use requestIdleCallback to defer non-critical localStorage read
+      const loadApiKey = () => {
+        try {
+          const storedKey = localStorage.getItem('openai_api_key') || '';
+          if (storedKey) {
+            // Show masked version
+            setApiKey('•'.repeat(Math.min(storedKey.length, 20)));
+            setIsMasked(true);
+          }
+        } catch (error) {
+          console.error('Failed to load API key from localStorage:', error);
+        }
+      };
+
+      // Use requestIdleCallback if available, otherwise setTimeout
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(loadApiKey, { timeout: 100 });
+      } else {
+        setTimeout(loadApiKey, 0);
       }
     }
   }, []);
@@ -257,7 +271,7 @@ export default function SettingsPage() {
                   </div>
                   <button
                     onClick={() => signIn('github', { callbackUrl: '/settings' })}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-glass-border hover:border-brand-orange/50 transition-all bg-glass-bg hover:bg-glass-bg/80"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-glass-border hover:border-brand-orange/50 transition-all bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground"
                   >
                     <Github className="h-5 w-5" />
                     Connect GitHub Account

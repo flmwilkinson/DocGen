@@ -37,12 +37,16 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
       checks.database = 'unhealthy';
     }
 
-    // Check Redis
+    // Check Redis (optional)
     try {
-      await app.redis.ping();
-      checks.redis = 'healthy';
+      if (app.redis) {
+        await app.redis.ping();
+        checks.redis = 'healthy';
+      } else {
+        checks.redis = 'disabled';
+      }
     } catch {
-      checks.redis = 'unhealthy';
+      checks.redis = 'unavailable';
     }
 
     const allHealthy = Object.values(checks).every((s) => s === 'healthy');

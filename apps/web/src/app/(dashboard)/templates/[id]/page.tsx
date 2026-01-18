@@ -105,7 +105,7 @@ export default function TemplateDetailPage() {
           ) : (
             <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           )}
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-glass-bg flex-shrink-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary/50 dark:bg-secondary/30 flex-shrink-0">
             <Icon className="h-4 w-4 text-brand-orange" />
           </div>
           <div className="flex-1 min-w-0">
@@ -115,7 +115,7 @@ export default function TemplateDetailPage() {
         </button>
 
         {isExpanded && (
-          <div className="border-t border-glass-border p-4 bg-glass-bg/50 space-y-4">
+          <div className="border-t border-glass-border p-4 bg-secondary/30 dark:bg-secondary/20 space-y-4">
             {/* LLM Prompt */}
             <div>
               <div className="flex items-center gap-2 mb-2">

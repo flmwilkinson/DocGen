@@ -31,6 +31,8 @@ export interface Project {
   lastKnowledgeGraphUpdate?: Date;
   cachedKnowledgeBase?: any; // CodeKnowledgeBase (stored as JSON)
   cachedCodeIntelligence?: any; // CodeIntelligenceResult (stored as JSON, without functions)
+  // Node summaries from evidence-first generation (filePath -> summary)
+  nodeSummaries?: Record<string, string>; // Map serialized as object
 }
 
 export interface GeneratedSection {
@@ -47,6 +49,20 @@ export interface GeneratedBlock {
   content: string;
   confidence: number;
   citations: string[];
+  // RAG explainability (audit evidence)
+  ragSources?: Array<{
+    filePath: string;
+    lineRange?: { start: number; end: number };
+    tier: 1 | 2;
+    category?: string;
+    excerpt?: string;
+    reason?: string;
+  }>;
+  dataEvidence?: Array<{
+    filePath: string;
+    rowCount: number;
+    columns: Array<{ name: string; dtype: string; nullPercent: number; min?: string; max?: string }>;
+  }>;
   // For LLM_CHART blocks with code execution
   generatedImage?: {
     base64: string;
@@ -86,6 +102,17 @@ export interface GenerationRun {
   gaps?: DocumentGap[];
   // Chat history
   chatMessages?: ChatMessage[];
+  // Evidence quality metrics
+  qualityMetrics?: {
+    tier1CitationPercent: number;
+    tier1SectionCoverage: number;
+    executedValidationsCount: number;
+    uncoveredSectionsCount: number;
+    readmeOnlyCount: number;
+    totalCitations: number;
+    tier1Citations: number;
+    tier2Citations: number;
+  };
 }
 
 interface ProjectsState {
@@ -445,38 +472,117 @@ export const useProjectsStore = create<ProjectsState>()(
     }),
     {
       name: 'docgen-projects',
-      // Handle Date serialization
+      // Exclude heavy data from localStorage to improve performance
+      partialize: (state) => ({
+        projects: state.projects.map((p) => ({
+          ...p,
+          cachedKnowledgeBase: undefined, // Stored in IndexedDB
+          cachedCodeIntelligence: undefined, // Stored in IndexedDB
+        })),
+        runs: state.runs.map((r) => ({
+          ...r,
+          // Exclude heavy content from localStorage - only keep metadata
+          sections: undefined,
+          gaps: undefined,
+          chatMessages: undefined,
+        })),
+      }),
+      // Handle Date serialization - keep original format for backwards compatibility
       storage: {
         getItem: (name) => {
+          if (typeof window === 'undefined') return null;
           const str = localStorage.getItem(name);
           if (!str) return null;
-          const data = JSON.parse(str);
-          // Convert date strings back to Date objects
-          if (data.state?.projects) {
-            data.state.projects = data.state.projects.map((p: Project) => ({
-              ...p,
-              createdAt: new Date(p.createdAt),
-              updatedAt: new Date(p.updatedAt),
-              artifacts: p.artifacts || [], // Ensure artifacts array exists
-            }));
+          try {
+            const data = JSON.parse(str);
+            // Convert date strings back to Date objects
+            if (data.state?.projects) {
+              data.state.projects = data.state.projects.map((p: Project) => ({
+                ...p,
+                createdAt: new Date(p.createdAt),
+                updatedAt: new Date(p.updatedAt),
+                artifacts: p.artifacts || [],
+              }));
+            }
+            if (data.state?.runs) {
+              data.state.runs = data.state.runs.map((r: GenerationRun) => ({
+                ...r,
+                createdAt: new Date(r.createdAt),
+                completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
+              }));
+            }
+            return data;
+          } catch (error) {
+            console.error('[Store] Failed to parse localStorage data:', error);
+            return null;
           }
-          if (data.state?.runs) {
-            data.state.runs = data.state.runs.map((r: GenerationRun) => ({
-              ...r,
-              createdAt: new Date(r.createdAt),
-              completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
-            }));
-          }
-          return data;
         },
         setItem: (name, value) => {
-          localStorage.setItem(name, JSON.stringify(value));
+          if (typeof window === 'undefined') return;
+          try {
+            localStorage.setItem(name, JSON.stringify(value));
+          } catch (error: any) {
+            if (error.name === 'QuotaExceededError' || error.code === 22) {
+              console.warn('[Store] localStorage quota exceeded, trimming data');
+              try {
+                // Trim nodeSummaries and old runs to make space
+                const data = typeof value === 'string' ? JSON.parse(value) : value;
+                if (data?.state?.projects) {
+                  data.state.projects = data.state.projects.map((p: Project) => ({
+                    ...p,
+                    nodeSummaries: undefined,
+                  }));
+                }
+                if (data?.state?.runs) {
+                  data.state.runs = data.state.runs.slice(-5);
+                }
+                localStorage.setItem(name, JSON.stringify(data));
+              } catch {
+                // Give up
+              }
+            }
+          }
         },
         removeItem: (name) => {
+          if (typeof window === 'undefined') return;
           localStorage.removeItem(name);
         },
       },
+      // Skip automatic hydration on initialization - we'll trigger it manually
+      // This prevents blocking the main thread during navigation
+      skipHydration: true,
     }
   )
 );
+
+// Trigger hydration only once on the client side
+if (typeof window !== 'undefined') {
+  // Use requestIdleCallback to hydrate during idle time, or setTimeout as fallback
+  const hydrateStore = () => {
+    useProjectsStore.persist.rehydrate();
+  };
+  
+  if ('requestIdleCallback' in window) {
+    (window as any).requestIdleCallback(hydrateStore, { timeout: 500 });
+  } else {
+    setTimeout(hydrateStore, 10);
+  }
+}
+
+// Optimized selectors for better performance
+// Use these instead of calling store methods inside selectors
+
+/** Select a specific project by ID - stable reference */
+export const selectProject = (id: string) => (state: ProjectsState) => 
+  state.projects.find(p => p.id === id);
+
+/** Select runs for a specific project - stable reference */
+export const selectProjectRuns = (projectId: string) => (state: ProjectsState) =>
+  state.runs
+    .filter(r => r.projectId === projectId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+/** Select a specific run by ID - stable reference */
+export const selectRun = (id: string) => (state: ProjectsState) =>
+  state.runs.find(r => r.id === id);
 

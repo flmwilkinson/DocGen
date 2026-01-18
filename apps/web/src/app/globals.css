@@ -183,10 +183,48 @@
     -webkit-backdrop-filter: blur(24px) saturate(200%);
     background: linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.9) 0%,
-      rgba(255, 255, 255, 0.82) 60%,
-      rgba(253, 81, 8, 0.04) 120%
+      rgba(255, 255, 255, 0.88) 0%,
+      rgba(255, 255, 255, 0.85) 50%,
+      rgba(255, 255, 255, 0.82) 100%
     );
+  }
+  
+  /* Modal-specific glass panel - smoother gradients */
+  .glass-panel[class*="max-w"] {
+    backdrop-filter: blur(28px) saturate(200%);
+    -webkit-backdrop-filter: blur(28px) saturate(200%);
+  }
+  
+  .light .glass-panel[class*="max-w"] {
+    backdrop-filter: blur(32px) saturate(220%);
+    -webkit-backdrop-filter: blur(32px) saturate(220%);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.96) 0%,
+      rgba(255, 255, 255, 0.94) 40%,
+      rgba(255, 255, 255, 0.92) 80%,
+      rgba(255, 255, 255, 0.90) 100%
+    );
+    box-shadow: 
+      0 20px 60px rgba(0, 0, 0, 0.12),
+      0 8px 24px rgba(0, 0, 0, 0.08),
+      inset 0 1px 1px rgba(255, 255, 255, 0.98),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.7);
+  }
+  
+  .dark .glass-panel[class*="max-w"] {
+    background: linear-gradient(
+      135deg,
+      rgba(15, 15, 26, 0.95) 0%,
+      rgba(22, 22, 42, 0.92) 40%,
+      rgba(26, 26, 46, 0.90) 80%,
+      rgba(15, 15, 26, 0.88) 100%
+    );
+    box-shadow: 
+      0 20px 60px rgba(0, 0, 0, 0.5),
+      0 8px 24px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.03);
   }
   
   /* Light mode glass panel shadows - enhanced glassmorphism */
@@ -278,6 +316,20 @@
     box-shadow: 
       0 2px 8px rgba(0, 0, 0, 0.06),
       inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+  
+  /* Dark mode button/card with proper contrast */
+  .btn-glass {
+    @apply bg-secondary/50 dark:bg-secondary/30;
+    @apply hover:bg-secondary/70 dark:hover:bg-secondary/50;
+    @apply text-foreground;
+    @apply border border-glass-border;
+    @apply transition-all duration-200;
+  }
+  
+  .light .btn-glass {
+    @apply bg-secondary/50;
+    @apply hover:bg-secondary/70;
   }
   
   /* ===========================================

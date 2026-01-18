@@ -53,7 +53,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useProjectsStore, type GeneratedSection, type GeneratedBlock, type DocumentGap, type ChatMessage } from '@/store/projects';
+import { useProjectsStore, selectProject, selectRun, type GeneratedSection, type GeneratedBlock, type DocumentGap, type ChatMessage } from '@/store/projects';
 import { analyzeGap, fixGap, processGapChat, type GapContext, type GapAnalysisResult } from '@/lib/gap-agent';
 
 // TipTap Toolbar Component
@@ -333,9 +333,9 @@ export default function DocumentEditorPage() {
     }
   };
   
-  // Store
-  const run = useProjectsStore((state) => state.getRun(runId));
-  const project = useProjectsStore((state) => state.getProject(projectId));
+  // Store - use optimized selectors
+  const run = useProjectsStore(selectRun(runId));
+  const project = useProjectsStore(selectProject(projectId));
   const updateRun = useProjectsStore((state) => state.updateRun);
 
   // Chat messages from store or initialize
@@ -1101,6 +1101,77 @@ export default function DocumentEditorPage() {
     }
   }, [buildMarkdown, convertMarkdownToDocx, run?.documentTitle, run?.templateName, run?.sections, sanitizeFilename]);
 
+  const getRagSourceTooltip = useCallback((block: GeneratedBlock, citation: string) => {
+    if (!block.ragSources || block.ragSources.length === 0) {
+      return citation;
+    }
+
+    const match = block.ragSources.find((source) => citation.includes(source.filePath));
+    if (!match) {
+      return citation;
+    }
+
+    const lines = match.lineRange ? `${match.lineRange.start}-${match.lineRange.end}` : 'n/a';
+    const excerpt = match.excerpt
+      ? match.excerpt.replace(/\s+/g, ' ').slice(0, 260)
+      : 'No excerpt available';
+    const category = match.category ? ` (${match.category})` : '';
+    const reason = match.reason ? `\nReason: ${match.reason}` : '';
+
+    return `${match.filePath}:${lines}\nTier: ${match.tier}${category}${reason}\nExcerpt: ${excerpt}`;
+  }, []);
+
+  const renderEvidenceDetails = useCallback((block: GeneratedBlock) => {
+    const hasRag = !!block.ragSources?.length;
+    const hasData = !!block.dataEvidence?.length;
+    if (!hasRag && !hasData) return null;
+
+    return (
+      <details className="mt-3">
+        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+          View retrieval evidence
+        </summary>
+        <div className="mt-2 space-y-3 text-xs text-muted-foreground">
+          {hasRag && (
+            <div className="space-y-2">
+              <div className="font-medium uppercase tracking-wide">RAG Sources</div>
+              {block.ragSources?.slice(0, 6).map((source, idx) => (
+                <div key={`${source.filePath}-${idx}`} className="rounded-md border border-glass-border/60 bg-secondary/50 dark:bg-secondary/30 p-2">
+                  <div className="text-foreground font-medium">
+                    {source.filePath}
+                    {source.lineRange ? `:${source.lineRange.start}-${source.lineRange.end}` : ''}
+                  </div>
+                  <div className="text-foreground/80">Tier: {source.tier}{source.category ? ` (${source.category})` : ''}</div>
+                  {source.excerpt && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {source.excerpt.length > 240 ? `${source.excerpt.slice(0, 240)}...` : source.excerpt}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {block.ragSources && block.ragSources.length > 6 && (
+                <div className="text-[11px] text-muted-foreground">
+                  +{block.ragSources.length - 6} more sources
+                </div>
+              )}
+            </div>
+          )}
+          {hasData && (
+            <div className="space-y-2">
+              <div className="font-medium uppercase tracking-wide">Data Evidence</div>
+              {block.dataEvidence?.map((data) => (
+                <div key={data.filePath} className="rounded-md border border-glass-border/60 bg-secondary/50 dark:bg-secondary/30 p-2">
+                  <div className="text-foreground font-medium">{data.filePath}</div>
+                  <div className="text-foreground/80">{data.rowCount} rows, {data.columns.length} columns</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
+    );
+  }, []);
+
   // Full height container - header is 64px (4rem)
   return (
     <div className="flex h-full overflow-hidden px-6 pt-6">
@@ -1169,7 +1240,7 @@ export default function DocumentEditorPage() {
       {isOutlineCollapsed && (
         <button
           onClick={() => setIsOutlineCollapsed(false)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-glass-bg border border-glass-border rounded-r-lg p-1 hover:bg-glass-bg-light transition-colors"
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-secondary/50 dark:bg-secondary/30 border border-glass-border rounded-r-lg p-1 hover:bg-secondary/70 dark:hover:bg-secondary/50 transition-colors text-foreground"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
@@ -1256,8 +1327,9 @@ export default function DocumentEditorPage() {
                 ? highlightedGap
                 : null;
               
-              // Severity-based colors
-              const severityStyles = {
+              // Severity-based colors (critical/high = red, medium = yellow, low = blue)
+              const severityStyles: Record<string, { ring: string; bg: string; text: string }> = {
+                critical: { ring: 'ring-red-500/50', bg: 'bg-red-500/5', text: 'text-red-500' },
                 high: { ring: 'ring-red-500/50', bg: 'bg-red-500/5', text: 'text-red-500' },
                 medium: { ring: 'ring-yellow-500/50', bg: 'bg-yellow-500/5', text: 'text-yellow-500' },
                 low: { ring: 'ring-blue-500/50', bg: 'bg-blue-500/5', text: 'text-blue-500' },
@@ -1353,14 +1425,14 @@ export default function DocumentEditorPage() {
                                   </span>
                                   <button
                                     onClick={() => setEditingBlock(block.id)}
-                                    className="p-1.5 rounded-lg bg-glass-bg hover:bg-glass-bg-light text-muted-foreground hover:text-foreground transition-colors border border-glass-border"
+                                    className="p-1.5 rounded-lg bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground transition-colors border border-glass-border"
                                     title="Edit"
                                   >
                                     <Edit3 className="h-3.5 w-3.5" />
                                   </button>
                                   <button
                                     onClick={() => setAiPromptBlock(block.id)}
-                                    className="p-1.5 rounded-lg bg-glass-bg hover:bg-brand-orange/20 text-muted-foreground hover:text-brand-orange transition-colors border border-glass-border"
+                                    className="p-1.5 rounded-lg bg-secondary/50 dark:bg-secondary/30 hover:bg-brand-orange/20 text-foreground hover:text-brand-orange transition-colors border border-glass-border"
                                     title="Enhance with AI"
                                   >
                                     {regeneratingBlock === block.id ? (
@@ -1433,12 +1505,13 @@ export default function DocumentEditorPage() {
                                         <span
                                           key={i}
                                           className="text-xs px-2 py-1 rounded bg-glass-bg border border-glass-border text-muted-foreground hover:text-foreground dark:text-foreground/80 dark:hover:text-foreground transition-colors cursor-pointer"
-                                          title={citation}
+                                          title={getRagSourceTooltip(block, citation)}
                                         >
                                           {citation.split('/').pop() || citation}
                                         </span>
                                       ))}
                                     </div>
+                                    {renderEvidenceDetails(block)}
                                   </div>
                                 )}
                               </>
@@ -1614,8 +1687,8 @@ export default function DocumentEditorPage() {
                               {block.citations.slice(0, 5).map((citation, i) => (
                                 <span
                                   key={i}
-                                  className="text-xs bg-glass-bg/50 px-2 py-1 rounded-md text-muted-foreground hover:text-brand-orange hover:bg-brand-orange/10 dark:text-foreground/80 dark:hover:text-foreground cursor-pointer transition-colors"
-                                  title={citation}
+                                  className="text-xs bg-secondary/50 dark:bg-secondary/30 px-2 py-1 rounded-md text-foreground/90 hover:text-brand-orange hover:bg-brand-orange/10 dark:hover:bg-brand-orange/20 cursor-pointer transition-colors border border-glass-border/50"
+                                  title={getRagSourceTooltip(block, citation)}
                                 >
                                   <Code className="h-3 w-3 inline mr-1" />
                                   {citation.length > 30 ? '...' + citation.slice(-25) : citation}
@@ -1627,6 +1700,7 @@ export default function DocumentEditorPage() {
                                 </span>
                               )}
                             </div>
+                            {renderEvidenceDetails(block)}
                           </div>
                         )}
                       </>
@@ -1712,7 +1786,62 @@ export default function DocumentEditorPage() {
                   <div ref={chatEndRef} />
                 </div>
               ) : (
-                <div className="p-3">
+                <div className="p-3 space-y-3">
+                  {/* Evidence Quality Metrics */}
+                  {run?.qualityMetrics && (
+                    <div className="glass-panel p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <BarChart3 className="h-3.5 w-3.5" />
+                        Evidence Quality
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Tier-1 Citations</span>
+                          <span className={cn(
+                            "font-medium",
+                            run.qualityMetrics.tier1CitationPercent >= 50 ? "text-green-500" :
+                            run.qualityMetrics.tier1CitationPercent >= 25 ? "text-yellow-500" :
+                            "text-red-500"
+                          )}>
+                            {run.qualityMetrics.tier1CitationPercent}%
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Section Coverage</span>
+                          <span className={cn(
+                            "font-medium",
+                            run.qualityMetrics.tier1SectionCoverage >= 80 ? "text-green-500" :
+                            run.qualityMetrics.tier1SectionCoverage >= 50 ? "text-yellow-500" :
+                            "text-red-500"
+                          )}>
+                            {run.qualityMetrics.tier1SectionCoverage}%
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Data Audits</span>
+                          <span className="font-medium text-foreground">
+                            {run.qualityMetrics.executedValidationsCount}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Uncovered</span>
+                          <span className={cn(
+                            "font-medium",
+                            run.qualityMetrics.uncoveredSectionsCount === 0 ? "text-green-500" :
+                            "text-yellow-500"
+                          )}>
+                            {run.qualityMetrics.uncoveredSectionsCount}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground pt-1 border-t border-glass-border">
+                        <span>Tier-1: {run.qualityMetrics.tier1Citations} code</span>
+                        <span>•</span>
+                        <span>Tier-2: {run.qualityMetrics.tier2Citations} docs</span>
+                      </div>
+                    </div>
+                  )}
+                  
                   {gaps.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <Check className="h-8 w-8 mx-auto mb-2 text-green-500" />
@@ -1720,15 +1849,23 @@ export default function DocumentEditorPage() {
                       <p className="text-xs mt-1">Your documentation looks complete.</p>
                     </div>
                   ) : (
-                    sortedGaps.map((gap) => (
-                      <GapCard 
-                        key={gap.id} 
-                        gap={gap} 
-                        onFix={handleFixGap}
-                        onHighlight={handleGapHighlight}
-                        isActive={activeGap?.id === gap.id || highlightedGap?.id === gap.id}
-                      />
-                    ))
+                    <>
+                      {/* Debug: Show gap count */}
+                      {process.env.NODE_ENV === 'development' && (
+                        <div className="text-xs text-muted-foreground mb-2 px-2">
+                          Showing {sortedGaps.length} of {gaps.length} gaps
+                        </div>
+                      )}
+                      {sortedGaps.map((gap) => (
+                        <GapCard 
+                          key={gap.id} 
+                          gap={gap} 
+                          onFix={handleFixGap}
+                          onHighlight={handleGapHighlight}
+                          isActive={activeGap?.id === gap.id || highlightedGap?.id === gap.id}
+                        />
+                      ))}
+                    </>
                   )}
                 </div>
               )}

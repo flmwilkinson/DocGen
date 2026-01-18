@@ -23,9 +23,9 @@ import {
   Save,
 } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/utils';
-import { useProjectsStore, type Project } from '@/store/projects';
+import { useProjectsStore, selectProject, selectProjectRuns, type Project } from '@/store/projects';
 import { useTemplatesStore, flattenTemplateBlocks } from '@/store/templates';
-import { generateDocument, isOpenAIConfigured, getOpenAIErrorMessage, type GenerationContext } from '@/lib/openai';
+import { generateDocument, isOpenAIConfigured, getOpenAIErrorMessage, type GenerationContext, type ThinkingStep } from '@/lib/openai';
 import { notificationService } from '@/lib/notifications';
 import { toast } from 'sonner';
 
@@ -40,14 +40,15 @@ export default function ProjectPage() {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
 
-  // Get project from store
-  const storeProject = useProjectsStore((state) => state.getProject(projectId));
-  const projectRuns = useProjectsStore((state) => state.getProjectRuns(projectId));
+  // Get project from store using optimized selectors
+  const storeProject = useProjectsStore(selectProject(projectId));
+  const projectRuns = useProjectsStore(selectProjectRuns(projectId));
   const addRun = useProjectsStore((state) => state.addRun);
   const updateRun = useProjectsStore((state) => state.updateRun);
   const deleteRun = useProjectsStore((state) => state.deleteRun);
@@ -59,9 +60,11 @@ export default function ProjectPage() {
     lastCommitHash?: string;
     cachedKnowledgeBase?: any;
     cachedCodeIntelligence?: any;
+    nodeSummaries?: Record<string, string>;
   }) => {
     updateProject(projectId, {
-      ...updates,
+      lastCommitHash: updates.lastCommitHash,
+      nodeSummaries: updates.nodeSummaries,
       lastKnowledgeGraphUpdate: new Date(),
     });
   }, [projectId, updateProject]);
@@ -153,6 +156,9 @@ export default function ProjectPage() {
         throw new Error(getOpenAIErrorMessage());
       }
 
+      // Clear previous thinking steps
+      setThinkingSteps([]);
+      
       // Build generation context with actual template
       const context: GenerationContext = {
         projectName: project.name,
@@ -164,6 +170,15 @@ export default function ProjectPage() {
           type: a.type,
           description: a.description,
         })),
+        nodeSummaries: project.nodeSummaries,
+        // Callback to receive thinking steps for UI display
+        onThinking: (step: ThinkingStep) => {
+          setThinkingSteps(prev => {
+            // Keep only the last 10 steps to avoid memory bloat
+            const newSteps = [...prev, step];
+            return newSteps.slice(-10);
+          });
+        },
       };
 
       console.log('[UI] Calling generateDocument with context:', {
@@ -189,9 +204,19 @@ export default function ProjectPage() {
         }
       );
 
-      // Add overall timeout (5 minutes for larger repos)
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Generation timed out after 5 minutes. Please try again.')), 300000)
+      // Add overall timeout (extended for full-repo, evidence-first runs)
+      const timeoutMinutes = 20;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Generation timed out after ${timeoutMinutes} minutes. ` +
+                  'Your repo is large and evidence-first analysis can take longer.'
+              )
+            ),
+          timeoutMinutes * 60 * 1000
+        )
       );
 
       const result = await Promise.race([generationPromise, timeoutPromise]);
@@ -206,6 +231,7 @@ export default function ProjectPage() {
         status: 'COMPLETED',
         progress: 100,
         completedAt: new Date(),
+        qualityMetrics: result.qualityMetrics,
       });
 
       setGenerationProgress(100);
@@ -672,8 +698,8 @@ export default function ProjectPage() {
 
       {/* Generate Document Dialog */}
       {showGenerateDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="glass-panel w-full max-w-md p-6 mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-md">
+          <div className="glass-panel relative w-full max-w-md p-6 mx-4 shadow-2xl border border-glass-border/50 bg-gradient-to-br from-glass-bg/95 via-glass-bg/90 to-glass-bg/85 dark:from-glass-bg/95 dark:via-glass-bg/90 dark:to-brand-orange/5 light:from-white/95 light:via-white/92 light:to-white/88">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Generate Documentation</h2>
               <button 
@@ -851,23 +877,71 @@ export default function ProjectPage() {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Loader2 className="h-12 w-12 animate-spin text-brand-orange mx-auto mb-4" />
-                <h3 className="font-medium mb-2">Generating Documentation...</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  {generationMessage || 'Connecting to AI...'}
-                </p>
-                <p className="text-xs text-muted-foreground mb-4">
-                  You can close this dialog while generation continues in the background.
-                </p>
-                <div className="w-full h-2 bg-glass-bg rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-brand-orange transition-all duration-300"
-                    style={{ width: `${Math.min(generationProgress, 100)}%` }}
-                  />
+              <div className="py-6">
+                <div className="text-center mb-6">
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-orange/10 ring-1 ring-brand-orange/20 shadow-lg shadow-brand-orange/20">
+                    <Loader2 className="h-6 w-6 animate-spin text-brand-orange" />
+                  </div>
+                  <h3 className="font-medium mb-2">Generating Documentation...</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {generationMessage || 'Connecting to AI...'}
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {Math.round(Math.min(generationProgress, 100))}% complete
+                
+                {/* Progress bar */}
+                <div className="mb-4">
+                  <div className="w-full h-2 bg-glass-bg rounded-full overflow-hidden border border-glass-border/70">
+                    <div 
+                      className="h-full bg-brand-orange/80 transition-all duration-300"
+                      style={{ width: `${Math.min(generationProgress, 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-2 text-center">
+                    {Math.round(Math.min(generationProgress, 100))}% complete
+                  </p>
+                </div>
+                
+                {/* Agent Thinking Steps */}
+                {thinkingSteps.length > 0 && (
+                  <div className="mt-4 rounded-lg overflow-hidden border border-border/50 dark:border-white/10 bg-muted/30 dark:bg-black/20">
+                    <div className="px-3 py-2 border-b border-border/50 dark:border-white/10 bg-muted/50 dark:bg-black/30">
+                      <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        🤖 Agent Thinking
+                      </h4>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto p-3 space-y-2">
+                      {thinkingSteps.map((step, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-xs animate-in fade-in slide-in-from-bottom-1 duration-300">
+                          <span className="flex-shrink-0 w-5 text-center">
+                            {step.type === 'think' && '💭'}
+                            {step.type === 'search' && '🔍'}
+                            {step.type === 'observe' && '👀'}
+                            {step.type === 'draft' && '✍️'}
+                            {step.type === 'verify' && '✅'}
+                            {step.type === 'refine' && '🔄'}
+                            {step.type === 'tool' && '🛠️'}
+                            {step.type === 'complete' && '🎉'}
+                            {step.type === 'evidence' && '📚'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-foreground dark:text-white/90 truncate">{step.message}</p>
+                            {step.details && (
+                              <p className="text-muted-foreground dark:text-white/50 truncate mt-0.5">{step.details}</p>
+                            )}
+                          </div>
+                          {step.iteration && step.iteration > 0 && (
+                            <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-brand-orange/10 dark:bg-brand-orange/20 text-brand-orange">
+                              #{step.iteration}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-xs text-muted-foreground mt-4 text-center">
+                  You can close this dialog while generation continues in the background.
                 </p>
               </div>
             )}
@@ -877,7 +951,7 @@ export default function ProjectPage() {
 
       {/* Edit Project Dialog */}
       {showEditDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-md">
           <div className="glass-panel w-full max-w-md p-6 mx-4">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Edit Project</h2>
@@ -954,7 +1028,7 @@ export default function ProjectPage() {
 
       {/* Delete Project Dialog */}
       {showDeleteDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-md">
           <div className="glass-panel w-full max-w-md p-6 mx-4">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-red-400">Delete Project</h2>

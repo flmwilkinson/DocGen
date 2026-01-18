@@ -7,9 +7,16 @@
 
 import type { CodeKnowledgeBase } from './openai';
 import type { CodeIntelligenceResult } from './code-intelligence';
+import { semanticSearch } from './code-intelligence';
 import { buildCodeKnowledgeBase } from './openai';
 import { buildCodeIntelligence } from './code-intelligence';
 import OpenAI from 'openai';
+import {
+  compressCodeIntelligence,
+  decompressKnowledgeBase,
+  wouldExceedQuota,
+} from './cache-compression';
+import { idbGet, idbSet } from './indexeddb-cache';
 
 /**
  * Get the latest commit SHA from GitHub
@@ -18,12 +25,19 @@ import OpenAI from 'openai';
 export async function getLatestCommitHash(repoUrl: string, githubToken?: string | null): Promise<string | null> {
   // If no token provided, try to get one from various sources
   if (!githubToken) {
-    try {
-      const { getGitHubToken } = await import('@/lib/github-auth');
-      githubToken = await getGitHubToken();
-    } catch (error) {
-      // Fallback to env vars
-      githubToken = process.env.GITHUB_TOKEN || process.env.NEXT_PUBLIC_GITHUB_TOKEN || null;
+    // In client context, skip getGitHubToken (which uses getServerSession) and go straight to env vars
+    if (typeof window !== 'undefined') {
+      // Client-side: only use public env vars
+      githubToken = process.env.NEXT_PUBLIC_GITHUB_TOKEN || null;
+    } else {
+      // Server-side: try getGitHubToken (which includes session check)
+      try {
+        const { getGitHubToken } = await import('@/lib/github-auth');
+        githubToken = await getGitHubToken();
+      } catch (error) {
+        // Fallback to env vars
+        githubToken = process.env.GITHUB_TOKEN || process.env.NEXT_PUBLIC_GITHUB_TOKEN || null;
+      }
     }
   }
   try {
@@ -101,16 +115,21 @@ export async function isRepoUpdated(
 }
 
 /**
- * Serialize CodeIntelligenceResult for storage (removes functions)
+ * Serialize CodeIntelligenceResult for storage (removes functions and compresses)
  */
 export function serializeCodeIntelligence(
   codeIntel: CodeIntelligenceResult
 ): any {
+  const compressed = compressCodeIntelligence(codeIntel);
+  
+  // Check if still too large and warn
+  if (wouldExceedQuota(compressed, 4)) {
+    console.warn('[Cache] Compressed code intelligence is still large, may cause storage issues');
+  }
+  
   return {
-    chunks: codeIntel.chunks,
-    relationships: codeIntel.relationships,
-    // Don't store functions (search, analyze, getChunksForTopic)
-    // They'll be recreated when deserializing
+    ...compressed,
+    hasEmbeddings: codeIntel.chunks.some((chunk) => !!chunk.embedding),
   };
 }
 
@@ -122,38 +141,57 @@ export function deserializeCodeIntelligence(
   data: any,
   openaiClient: OpenAI
 ): CodeIntelligenceResult {
+  const chunks = data.chunks || [];
+  const relationships = data.relationships || [];
+  const hasEmbeddings = data.hasEmbeddings || chunks.some((c: any) => !!c.embedding);
+
   // Recreate the search and analyze functions
-  // For now, we'll use keyword search since embeddings aren't stored
   return {
-    chunks: data.chunks || [],
-    relationships: data.relationships || [],
+    chunks,
+    relationships,
     search: async (query: string, topK: number = 10) => {
-      // Use keyword search (fast, no embeddings needed)
-      const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-      const chunks = data.chunks || [];
-      
-      const scored = chunks.map((chunk: any) => {
-        let score = 0;
-        const searchText = `${chunk.filePath} ${chunk.name} ${chunk.content} ${chunk.docstring || ''}`.toLowerCase();
-        
-        for (const word of queryWords) {
-          if (searchText.includes(word)) {
-            score += 1;
-            if (chunk.name.toLowerCase().includes(word)) score += 2;
-            if (chunk.filePath.toLowerCase().includes(word)) score += 1;
+      // Hybrid RAG: semantic + keyword (fallback)
+      const keywordResults = (() => {
+        const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const scored = chunks.map((chunk: any) => {
+          let score = 0;
+          const searchText = `${chunk.filePath} ${chunk.name} ${chunk.content} ${chunk.docstring || ''}`.toLowerCase();
+          for (const word of queryWords) {
+            if (searchText.includes(word)) {
+              score += 1;
+              if (chunk.name.toLowerCase().includes(word)) score += 2;
+              if (chunk.filePath.toLowerCase().includes(word)) score += 1;
+            }
           }
+          return { chunk, score, reason: `Keyword match: ${score} points` };
+        });
+        return scored
+          .filter((s: any) => s.score > 0)
+          .sort((a: any, b: any) => b.score - a.score)
+          .slice(0, topK);
+      })();
+
+      if (!hasEmbeddings) {
+        return keywordResults;
+      }
+
+      const semanticResults = await semanticSearch(query, chunks, openaiClient, topK);
+
+      // Merge semantic + keyword (dedupe by chunk id)
+      const merged = new Map<string, any>();
+      for (const result of semanticResults) {
+        merged.set(result.chunk.id, result);
+      }
+      for (const result of keywordResults) {
+        if (!merged.has(result.chunk.id)) {
+          merged.set(result.chunk.id, result);
         }
-        
-        return { chunk, score, reason: `Keyword match: ${score} points` };
-      });
-      
-      return scored
-        .filter((s: any) => s.score > 0)
-        .sort((a: any, b: any) => b.score - a.score)
-        .slice(0, topK);
+      }
+
+      return Array.from(merged.values()).slice(0, topK);
     },
     analyze: async (question: string) => {
-      // Simple analysis using keyword search
+      // Simple analysis using hybrid search
       const results = await deserializeCodeIntelligence(data, openaiClient).search(question, 5);
       return {
         answer: `Based on the codebase analysis, ${question} relates to: ${results.map(r => r.chunk.name).join(', ')}`,
@@ -163,7 +201,6 @@ export function deserializeCodeIntelligence(
     },
     getChunksForTopic: (topic: string) => {
       const topicLower = topic.toLowerCase();
-      const chunks = data.chunks || [];
       return chunks.filter((chunk: any) => 
         chunk.name.toLowerCase().includes(topicLower) ||
         chunk.filePath.toLowerCase().includes(topicLower) ||
@@ -171,6 +208,47 @@ export function deserializeCodeIntelligence(
       );
     },
   };
+}
+
+/**
+ * Persist full knowledge base in IndexedDB (no truncation)
+ */
+async function storeKnowledgeBaseInIndexedDB(
+  repoUrl: string,
+  commitHash: string | null,
+  knowledgeBase: CodeKnowledgeBase
+): Promise<void> {
+  try {
+    await idbSet(repoUrl, commitHash, 'knowledge-base', knowledgeBase);
+  } catch (error) {
+    console.warn('[GitHub Cache] Failed to store knowledge base in IndexedDB:', error);
+  }
+}
+
+/**
+ * Persist full code intelligence in IndexedDB (no truncation)
+ */
+async function storeCodeIntelligenceInIndexedDB(
+  repoUrl: string,
+  commitHash: string | null,
+  codeIntelligence: CodeIntelligenceResult,
+  useEmbeddings: boolean
+): Promise<void> {
+  try {
+    await idbSet(
+      repoUrl,
+      commitHash,
+      'code-intelligence',
+      {
+        chunks: codeIntelligence.chunks,
+        relationships: codeIntelligence.relationships,
+        hasEmbeddings: useEmbeddings && codeIntelligence.chunks.some((c) => !!c.embedding),
+      },
+      { embeddings: useEmbeddings }
+    );
+  } catch (error) {
+    console.warn('[GitHub Cache] Failed to store code intelligence in IndexedDB:', error);
+  }
 }
 
 /**
@@ -202,13 +280,34 @@ export async function getCachedKnowledgeBase(
   console.log('[GitHub Cache] Checking if repository has been updated...');
   onProgress?.('Checking repository status...');
   const { updated, latestCommitHash } = await isRepoUpdated(repoUrl, lastCommitHash, githubToken);
+  const commitForCache = latestCommitHash || lastCommitHash || null;
+
+  // Prefer IndexedDB cache for full content when repo unchanged
+  if (!updated && commitForCache) {
+    const idbKnowledgeBase = await idbGet<CodeKnowledgeBase>(
+      repoUrl,
+      commitForCache,
+      'knowledge-base'
+    );
+    if (idbKnowledgeBase) {
+      console.log('[GitHub Cache] Using IndexedDB knowledge base cache');
+      onProgress?.('Using cached repository data (IndexedDB)');
+      return {
+        knowledgeBase: idbKnowledgeBase,
+        wasCached: true,
+        commitHash: commitForCache,
+      };
+    }
+  }
   
   // If we have cached data and repo hasn't been updated, use cache
   if (cachedKnowledgeBase && !updated && latestCommitHash === lastCommitHash && latestCommitHash) {
     console.log('[GitHub Cache] Using cached knowledge base (repo unchanged)');
     onProgress?.('Using cached repository data');
+    // Decompress if needed (for backward compatibility, check if it's already decompressed)
+    const knowledgeBase = decompressKnowledgeBase(cachedKnowledgeBase);
     return {
-      knowledgeBase: cachedKnowledgeBase as CodeKnowledgeBase,
+      knowledgeBase,
       wasCached: true,
       commitHash: latestCommitHash || lastCommitHash || null,
     };
@@ -230,18 +329,26 @@ export async function getCachedKnowledgeBase(
       // Try to get commit hash after successful fetch (in case it failed before)
       const finalCommitHash = latestCommitHash || await getLatestCommitHash(repoUrl, githubToken);
     
-    return {
+    const result = {
       knowledgeBase,
       wasCached: false,
       commitHash: finalCommitHash,
     };
+    
+    // Persist full KB in IndexedDB (no truncation)
+    if (finalCommitHash) {
+      await storeKnowledgeBaseInIndexedDB(repoUrl, finalCommitHash, knowledgeBase);
+    }
+    
+    return result;
   } catch (error) {
     // If fetch fails but we have cached data, use it as fallback
     if (cachedKnowledgeBase) {
       console.warn('[GitHub Cache] Fetch failed, falling back to cached data:', error);
       onProgress?.('Fetch failed, using cached data as fallback');
+      const knowledgeBase = decompressKnowledgeBase(cachedKnowledgeBase);
       return {
-        knowledgeBase: cachedKnowledgeBase as CodeKnowledgeBase,
+        knowledgeBase,
         wasCached: true,
         commitHash: lastCommitHash || null,
       };
@@ -259,16 +366,42 @@ export async function getCachedCodeIntelligence(
   cachedCodeIntelligence: any,
   openaiClient: OpenAI,
   wasKnowledgeBaseCached: boolean,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
+  options?: { repoUrl?: string; commitHash?: string | null; useEmbeddings?: boolean }
 ): Promise<{ codeIntelligence: CodeIntelligenceResult; wasCached: boolean }> {
-  // If knowledge base was cached and we have cached code intelligence, use it
+  const useEmbeddings = options?.useEmbeddings ?? false;
+  const repoUrl = options?.repoUrl;
+  const commitHash = options?.commitHash || null;
+
+  // Prefer IndexedDB cache when available
+  if (repoUrl && commitHash) {
+    const idbCodeIntel = await idbGet<any>(
+      repoUrl,
+      commitHash,
+      'code-intelligence',
+      { embeddings: useEmbeddings }
+    );
+    if (idbCodeIntel && (!useEmbeddings || idbCodeIntel.hasEmbeddings)) {
+      console.log('[GitHub Cache] Using IndexedDB code intelligence cache');
+      onProgress?.('Using cached knowledge graph (IndexedDB)');
+      return {
+        codeIntelligence: deserializeCodeIntelligence(idbCodeIntel, openaiClient),
+        wasCached: true,
+      };
+    }
+  }
+
+  // If knowledge base was cached and we have cached code intelligence, use cache
   if (wasKnowledgeBaseCached && cachedCodeIntelligence) {
-    console.log('[GitHub Cache] Using cached code intelligence');
-    onProgress?.('Using cached knowledge graph');
-    return {
-      codeIntelligence: deserializeCodeIntelligence(cachedCodeIntelligence, openaiClient),
-      wasCached: true,
-    };
+    const hasEmbeddings = cachedCodeIntelligence?.hasEmbeddings;
+    if (!useEmbeddings || hasEmbeddings) {
+      console.log('[GitHub Cache] Using cached code intelligence');
+      onProgress?.('Using cached knowledge graph');
+      return {
+        codeIntelligence: deserializeCodeIntelligence(cachedCodeIntelligence, openaiClient),
+        wasCached: true,
+      };
+    }
   }
   
   // Build fresh code intelligence
@@ -279,12 +412,19 @@ export async function getCachedCodeIntelligence(
     knowledgeBase.files.map(f => ({ path: f.path, content: f.content, language: f.language })),
     openaiClient,
     onProgress,
-    false // Don't generate embeddings for speed
+    useEmbeddings
   );
   
-  return {
+  const result = {
     codeIntelligence,
     wasCached: false,
   };
+
+  // Persist full code intelligence in IndexedDB
+  if (repoUrl && commitHash) {
+    await storeCodeIntelligenceInIndexedDB(repoUrl, commitHash, codeIntelligence, useEmbeddings);
+  }
+
+  return result;
 }
 

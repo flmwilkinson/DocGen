@@ -91,6 +91,40 @@ const CHUNK_PATTERNS: Record<string, RegExp[]> = {
     // Class definitions
     /^(?:export\s+)?class\s+(\w+)(?:\s+extends\s+\w+)?\s*\{[^}]*\}/gms,
   ],
+  // R language
+  r: [
+    // Function definitions
+    /^(\w+)\s*<-\s*function\s*\([^)]*\)\s*\{[\s\S]*?\n\}/gm,
+    // Function definitions (= syntax)
+    /^(\w+)\s*=\s*function\s*\([^)]*\)\s*\{[\s\S]*?\n\}/gm,
+  ],
+  rmarkdown: [
+    // R code chunks
+    /```\{r[^}]*\}[\s\S]*?```/gm,
+  ],
+  // SAS language
+  sas: [
+    // DATA steps
+    /^data\s+(\w+)[\s\S]*?^run\s*;/gim,
+    // PROC steps
+    /^proc\s+(\w+)[\s\S]*?^run\s*;/gim,
+    // MACRO definitions
+    /%macro\s+(\w+)[\s\S]*?%mend\s*;?/gim,
+  ],
+  // SQL
+  sql: [
+    // CREATE TABLE
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)[\s\S]*?;/gim,
+    // CREATE VIEW
+    /CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(\w+)[\s\S]*?;/gim,
+    // CREATE PROCEDURE/FUNCTION
+    /CREATE\s+(?:OR\s+REPLACE\s+)?(?:PROCEDURE|FUNCTION)\s+(\w+)[\s\S]*?(?:END\s*;|AS\s*\$\$[\s\S]*?\$\$)/gim,
+  ],
+  // Stata
+  stata: [
+    // Program definitions
+    /^program\s+(?:define\s+)?(\w+)[\s\S]*?^end\b/gim,
+  ],
 };
 
 /**
@@ -162,6 +196,131 @@ function extractDocstring(content: string, language: string): string | undefined
 }
 
 /**
+ * Parse a data file (CSV) to extract schema info
+ */
+function parseDataFile(filePath: string, content: string, language: string): CodeChunk[] {
+  const lines = content.split('\n').filter(l => l.trim());
+  if (lines.length === 0) return [];
+  
+  // Extract header row
+  const headerLine = lines[0];
+  const delimiter = headerLine.includes('\t') ? '\t' : ',';
+  const columns = headerLine.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+  
+  // Sample first few data rows to infer types
+  const sampleRows = lines.slice(1, Math.min(6, lines.length));
+  const columnInfo = columns.map((col, idx) => {
+    const values = sampleRows.map(row => {
+      const cells = row.split(delimiter);
+      return cells[idx]?.trim().replace(/^["']|["']$/g, '') || '';
+    });
+    
+    // Infer type from sample values
+    const nonEmpty = values.filter(v => v !== '');
+    const isNumeric = nonEmpty.every(v => !isNaN(Number(v)));
+    const isDate = nonEmpty.every(v => !isNaN(Date.parse(v)));
+    const type = isNumeric ? 'numeric' : isDate ? 'date' : 'string';
+    
+    return `${col} (${type})`;
+  });
+  
+  const schemaContent = `Dataset Schema: ${columns.length} columns, ${lines.length - 1} rows\n\nColumns:\n${columnInfo.join('\n')}\n\nSample (first 5 rows):\n${lines.slice(0, 6).join('\n')}`;
+  
+  return [{
+    id: `${filePath}:dataset:1`,
+    filePath,
+    type: 'config', // Use config type for data schemas
+    name: filePath.split('/').pop()?.replace(/\.[^.]+$/, '') || 'dataset',
+    content: schemaContent,
+    startLine: 1,
+    endLine: Math.min(lines.length, 20),
+    language,
+    signature: `Dataset: ${columns.length} columns × ${lines.length - 1} rows`,
+    docstring: `Columns: ${columns.slice(0, 10).join(', ')}${columns.length > 10 ? '...' : ''}`,
+    dependencies: [],
+    exports: columns,
+  }];
+}
+
+/**
+ * Parse a Jupyter notebook to extract code cells
+ */
+function parseNotebook(filePath: string, content: string): CodeChunk[] {
+  const chunks: CodeChunk[] = [];
+  
+  try {
+    const notebook = JSON.parse(content);
+    const cells = notebook.cells || [];
+    let lineOffset = 1;
+    
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      if (cell.cell_type === 'code' && cell.source) {
+        const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+        if (source.trim()) {
+          const cellLines = source.split('\n').length;
+          chunks.push({
+            id: `${filePath}:cell_${i}:${lineOffset}`,
+            filePath,
+            type: 'function',
+            name: `Cell ${i + 1}`,
+            content: source.slice(0, 2000),
+            startLine: lineOffset,
+            endLine: lineOffset + cellLines,
+            language: 'python',
+            signature: source.split('\n')[0].slice(0, 80),
+            docstring: cell.metadata?.name || undefined,
+            dependencies: [],
+            exports: [],
+          });
+          lineOffset += cellLines + 1;
+        }
+      } else if (cell.cell_type === 'markdown' && cell.source) {
+        const source = Array.isArray(cell.source) ? cell.source.join('') : cell.source;
+        // Extract markdown headings as section markers
+        const headingMatch = source.match(/^#+\s+(.+)/m);
+        if (headingMatch) {
+          chunks.push({
+            id: `${filePath}:md_${i}:${lineOffset}`,
+            filePath,
+            type: 'module',
+            name: headingMatch[1].slice(0, 50),
+            content: source.slice(0, 500),
+            startLine: lineOffset,
+            endLine: lineOffset + source.split('\n').length,
+            language: 'markdown',
+            docstring: source.slice(0, 200),
+            dependencies: [],
+            exports: [],
+          });
+        }
+        lineOffset += source.split('\n').length + 1;
+      }
+    }
+  } catch (e) {
+    console.warn(`[CodeIntel] Failed to parse notebook ${filePath}:`, e);
+  }
+  
+  // If no cells extracted, create a file-level chunk
+  if (chunks.length === 0) {
+    chunks.push({
+      id: `${filePath}:notebook:1`,
+      filePath,
+      type: 'module',
+      name: filePath.split('/').pop()?.replace(/\.[^.]+$/, '') || 'notebook',
+      content: content.slice(0, 1000),
+      startLine: 1,
+      endLine: 1,
+      language: 'jupyter',
+      dependencies: [],
+      exports: [],
+    });
+  }
+  
+  return chunks;
+}
+
+/**
  * Parse a code file into semantic chunks
  * This is a simplified version - production would use tree-sitter
  */
@@ -170,6 +329,16 @@ export function parseCodeFile(
   content: string,
   language: string
 ): CodeChunk[] {
+  // Special handling for data files
+  if (['csv', 'tsv'].includes(language)) {
+    return parseDataFile(filePath, content, language);
+  }
+  
+  // Special handling for Jupyter notebooks
+  if (language === 'jupyter') {
+    return parseNotebook(filePath, content);
+  }
+  
   const chunks: CodeChunk[] = [];
   const lines = content.split('\n');
   
@@ -340,8 +509,13 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// OPTIMIZATION: Memoize search queries to avoid redundant embedding calls
+const searchCache = new Map<string, { embedding: number[]; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Semantic search over code chunks
+ * OPTIMIZATION: Memoizes query embeddings to avoid redundant API calls
  */
 export async function semanticSearch(
   query: string,
@@ -351,12 +525,34 @@ export async function semanticSearch(
 ): Promise<SearchResult[]> {
   console.log(`[Search] Searching for: "${query.slice(0, 50)}..."`);
   
-  // Generate query embedding
-  const queryResponse = await openaiClient.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: query,
-  });
-  const queryEmbedding = queryResponse.data[0].embedding;
+  // OPTIMIZATION: Check cache first
+  const cacheKey = query.toLowerCase().trim();
+  const cached = searchCache.get(cacheKey);
+  const now = Date.now();
+  
+  let queryEmbedding: number[];
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    console.log(`[Search] Using cached embedding for query`);
+    queryEmbedding = cached.embedding;
+  } else {
+    // Generate query embedding
+    const queryResponse = await openaiClient.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: query,
+    });
+    queryEmbedding = queryResponse.data[0].embedding;
+    
+    // Cache it
+    searchCache.set(cacheKey, { embedding: queryEmbedding, timestamp: now });
+    
+    // Clean old cache entries (keep last 100)
+    if (searchCache.size > 100) {
+      const entries = Array.from(searchCache.entries());
+      entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+      searchCache.clear();
+      entries.slice(0, 100).forEach(([key, value]) => searchCache.set(key, value));
+    }
+  }
   
   // Find similar chunks
   const results: SearchResult[] = [];
@@ -605,6 +801,7 @@ export interface CodeIntelligenceResult {
   search: (query: string, topK?: number) => Promise<SearchResult[]>;
   analyze: (question: string) => Promise<{ answer: string; relevantChunks: CodeChunk[]; citations: string[] }>;
   getChunksForTopic: (topic: string) => CodeChunk[];
+  generateSummaries: (filePaths: string[], onSummary?: (path: string, summary: string) => void) => Promise<Map<string, string>>;
 }
 
 /**
@@ -713,6 +910,104 @@ export async function buildCodeIntelligence(
         (chunk.docstring && chunk.docstring.toLowerCase().includes(topicLower))
       );
     },
+    
+    // Generate AI summaries for a batch of files (on-demand)
+    generateSummaries: async (filePaths: string[], onSummary?: (path: string, summary: string) => void): Promise<Map<string, string>> => {
+      const summaries = new Map<string, string>();
+      const chunksToSummarize = allChunks.filter(c => 
+        filePaths.includes(c.filePath) && 
+        (c.type === 'module' || c.type === 'class' || c.type === 'function')
+      );
+      
+      // Only summarize unique files (pick first chunk per file)
+      const seenFiles = new Set<string>();
+      const uniqueChunks = chunksToSummarize.filter(c => {
+        if (seenFiles.has(c.filePath)) return false;
+        seenFiles.add(c.filePath);
+        return true;
+      });
+      
+      // Batch process summaries (limit concurrency)
+      const batchSize = 5;
+      for (let i = 0; i < uniqueChunks.length; i += batchSize) {
+        const batch = uniqueChunks.slice(i, i + batchSize);
+        
+        await Promise.all(batch.map(async (chunk) => {
+          try {
+            const summary = await generateChunkSummary(chunk, relationships, openaiClient);
+            if (summary) {
+              summaries.set(chunk.filePath, summary);
+              onSummary?.(chunk.filePath, summary);
+            }
+          } catch (error) {
+            console.error(`[CodeIntel] Failed to generate summary for ${chunk.filePath}:`, error);
+          }
+        }));
+        
+        // Rate limiting
+        if (i + batchSize < uniqueChunks.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      return summaries;
+    },
   };
+}
+
+/**
+ * Generate a concise AI summary for a code chunk
+ * Focus on: purpose, inputs/outputs, dependencies
+ */
+async function generateChunkSummary(
+  chunk: CodeChunk,
+  relationships: CodeRelationship[],
+  openaiClient: OpenAI
+): Promise<string | null> {
+  // Get related chunks for context
+  const related = relationships
+    .filter(r => r.sourceId === chunk.id || r.targetId === chunk.id)
+    .slice(0, 5);
+  
+  const relatedContext = related.map(r => {
+    const isSource = r.sourceId === chunk.id;
+    return `${r.type}: ${isSource ? r.targetId.split(':')[0] : r.sourceId.split(':')[0]}`;
+  }).join(', ');
+  
+  try {
+    const response = await openaiClient.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Generate a brief 1-2 sentence summary of this code. Focus on:
+- What it does (purpose)
+- Key inputs/outputs
+- Important dependencies
+
+Be specific and technical. No fluff.`
+        },
+        {
+          role: 'user',
+          content: `File: ${chunk.filePath}
+Type: ${chunk.type}
+Name: ${chunk.name}
+${chunk.signature ? `Signature: ${chunk.signature}` : ''}
+${chunk.docstring ? `Docs: ${chunk.docstring}` : ''}
+${relatedContext ? `Relationships: ${relatedContext}` : ''}
+
+Code:
+${chunk.content.slice(0, 2000)}`
+        }
+      ],
+      max_tokens: 150,
+      temperature: 0.3,
+    });
+    
+    return response.choices[0]?.message?.content?.trim() || null;
+  } catch (error) {
+    console.error(`[CodeIntel] Summary generation failed:`, error);
+    return null;
+  }
 }
 

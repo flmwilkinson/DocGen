@@ -15,19 +15,26 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 /**
  * Get GitHub token from various sources (server-side)
  * Priority: 1) OAuth session token (scalable), 2) Env vars (dev), 3) GitHub CLI (dev)
+ * 
+ * NOTE: This function can be called from both server and client contexts.
+ * In client contexts, it will skip server-side session checks and use env vars only.
  */
 export async function getGitHubToken(): Promise<string | null> {
   // 1. PRIMARY: Check NextAuth OAuth session (scalable - works for any user)
   // This is the production approach - each user authenticates with their own GitHub account
-  try {
-    const session = await getServerSession(authOptions);
-    const sessionToken = (session as any)?.githubAccessToken;
-    if (sessionToken) {
-      console.log('[GitHub Auth] Using OAuth session token');
-      return sessionToken;
+  // ONLY try this server-side (getServerSession requires request context)
+  if (typeof window === 'undefined') {
+    try {
+      const session = await getServerSession(authOptions);
+      const sessionToken = (session as any)?.githubAccessToken;
+      if (sessionToken) {
+        console.log('[GitHub Auth] Using OAuth session token');
+        return sessionToken;
+      }
+    } catch (error) {
+      // This can happen if called from client context or if session is unavailable
+      // Silently fall through to env vars
     }
-  } catch (error) {
-    console.warn('[GitHub Auth] Session check failed:', error);
   }
 
   // 2. FALLBACK: Environment variables (for local development/testing)
@@ -41,15 +48,18 @@ export async function getGitHubToken(): Promise<string | null> {
 
   // 3. FALLBACK: GitHub CLI (for local development)
   // This works if user has `gh` CLI installed and authenticated
-  try {
-    const { execSync } = require('child_process');
-    const token = execSync('gh auth token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    if (token) {
-      console.log('[GitHub Auth] Using GitHub CLI token');
-      return token;
+  // NOTE: Only works server-side, not in browser
+  if (typeof window === 'undefined') {
+    try {
+      const { execSync } = require('child_process');
+      const token = execSync('gh auth token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (token) {
+        console.log('[GitHub Auth] Using GitHub CLI token');
+        return token;
+      }
+    } catch (error) {
+      // GitHub CLI not installed or not authenticated
     }
-  } catch (error) {
-    // GitHub CLI not installed or not authenticated
   }
 
   console.warn('[GitHub Auth] No GitHub token found - will only work for public repos');

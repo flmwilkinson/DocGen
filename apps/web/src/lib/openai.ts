@@ -27,8 +27,26 @@ import {
   initializeAgentMemory,
   updateAgentMemory,
   AgentMemory,
-  AgentContext
+  AgentContext,
+  ThinkingStep,
+  OnThinkingCallback
 } from './react-agent';
+import {
+  generateSectionWithEvidence,
+  generateEvidenceGaps,
+  EvidenceAgentContext,
+  EvidenceAgentResult,
+} from './evidence-agent';
+import {
+  EvidenceFirstConfig,
+  QualityMetrics,
+  DEFAULT_CONFIG as DEFAULT_EVIDENCE_CONFIG,
+  classifySource,
+  calculateQualityMetrics,
+  checkQualityThresholds,
+  EvidenceBundle,
+  generateNodeSummary,
+} from './evidence-first';
 import { 
   getCachedKnowledgeBase, 
   getCachedCodeIntelligence, 
@@ -98,6 +116,29 @@ export interface GenerationContext {
   agentMemory?: AgentMemory; // Persistent memory for ReAct agent
   template: Template;
   artifacts?: { name: string; type: string; description?: string }[];
+  nodeSummaries?: Record<string, string>; // Cached per-file summaries (KG)
+  // Evidence-first configuration
+  evidenceConfig?: EvidenceFirstConfig;
+  useEvidenceFirst?: boolean; // Enable evidence-first agent
+  // Callback for agent thinking steps (for UI display)
+  onThinking?: OnThinkingCallback;
+  // OPTIMIZATION: Pre-processed data files (global, not per-section)
+  globalDataFiles?: Array<{ path: string; content: string }>;
+}
+
+// Re-export for use in other files
+export type { ThinkingStep, OnThinkingCallback };
+
+// Quality metrics for the generated document
+export interface DocumentQualityMetrics {
+  tier1CitationPercent: number;
+  tier1SectionCoverage: number;
+  executedValidationsCount: number;
+  uncoveredSectionsCount: number;
+  readmeOnlyCount: number;
+  totalCitations: number;
+  tier1Citations: number;
+  tier2Citations: number;
 }
 
 export interface GeneratedBlock {
@@ -135,6 +176,9 @@ export interface GenerationResult {
   documentTitle: string;
   sections: GeneratedSection[];
   gaps: DocumentGap[];
+  // Evidence-first quality metrics (if evidence-first mode was used)
+  qualityMetrics?: DocumentQualityMetrics;
+  thresholdViolations?: Array<{ metric: string; value: number; threshold: number; severity: 'warning' | 'error' }>;
 }
 
 /**
@@ -143,7 +187,20 @@ export interface GenerationResult {
 function categorizeFile(path: string, name: string): CodeFile['category'] {
   const lowerPath = path.toLowerCase();
   const lowerName = name.toLowerCase();
+  const ext = name.split('.').pop()?.toLowerCase() || '';
   
+  // Data files - highest priority for IFRS9/financial models
+  if (['csv', 'parquet', 'xlsx', 'xls', 'tsv', 'feather', 'arrow'].includes(ext)) {
+    return 'data';
+  }
+  // Notebooks - often contain model code/analysis
+  if (ext === 'ipynb') {
+    return 'model';
+  }
+  // Statistical languages - likely model code
+  if (['sas', 'r', 'rmd', 'do', 'ado', 'mata'].includes(ext)) {
+    return 'model';
+  }
   // Tests
   if (lowerPath.includes('test') || lowerPath.includes('spec') || lowerName.includes('test') || lowerName.includes('spec')) {
     return 'test';
@@ -153,9 +210,14 @@ function categorizeFile(path: string, name: string): CodeFile['category'] {
       lowerPath.includes('config')) {
     return 'config';
   }
-  // Model/ML files
+  // SQL/Schema files
+  if (['sql', 'ddl', 'dml'].includes(ext) || lowerPath.includes('migration')) {
+    return 'data';
+  }
+  // Model/ML files (including IFRS9 components)
   if (lowerPath.includes('model') || lowerPath.includes('ml') || lowerPath.includes('train') || 
-      lowerName.includes('model') || lowerName.includes('classifier') || lowerName.includes('predictor')) {
+      lowerName.includes('model') || lowerName.includes('classifier') || lowerName.includes('predictor') ||
+      lowerPath.includes('pd') || lowerPath.includes('lgd') || lowerPath.includes('ead') || lowerPath.includes('ecl')) {
     return 'model';
   }
   // API/Routes
@@ -165,7 +227,7 @@ function categorizeFile(path: string, name: string): CodeFile['category'] {
   }
   // Data handling
   if (lowerPath.includes('data') || lowerPath.includes('loader') || lowerPath.includes('dataset') ||
-      lowerPath.includes('schema') || lowerPath.includes('migration')) {
+      lowerPath.includes('schema')) {
     return 'data';
   }
   // Utils/Helpers
@@ -191,11 +253,32 @@ function categorizeFile(path: string, name: string): CodeFile['category'] {
 function getLanguage(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   const langMap: Record<string, string> = {
+    // Programming languages
     'py': 'python', 'js': 'javascript', 'ts': 'typescript', 'jsx': 'jsx', 'tsx': 'tsx',
     'java': 'java', 'go': 'go', 'rs': 'rust', 'rb': 'ruby', 'php': 'php',
     'cs': 'csharp', 'cpp': 'cpp', 'c': 'c', 'h': 'c', 'hpp': 'cpp',
-    'sql': 'sql', 'sh': 'bash', 'yaml': 'yaml', 'yml': 'yaml', 'json': 'json',
-    'md': 'markdown', 'txt': 'text', 'html': 'html', 'css': 'css', 'scss': 'scss',
+    'scala': 'scala', 'kt': 'kotlin', 'swift': 'swift', 'lua': 'lua',
+    'jl': 'julia', 'dart': 'dart', 'clj': 'clojure', 'ex': 'elixir',
+    // Statistical/Data Science
+    'r': 'r', 'rmd': 'rmarkdown', 'sas': 'sas', 'sps': 'spss',
+    'do': 'stata', 'ado': 'stata', 'mata': 'stata',
+    // Notebooks
+    'ipynb': 'jupyter',
+    // Data files
+    'csv': 'csv', 'tsv': 'tsv', 'parquet': 'parquet', 
+    'xlsx': 'excel', 'xls': 'excel',
+    // Config/Schema
+    'sql': 'sql', 'ddl': 'sql', 'dml': 'sql',
+    'yaml': 'yaml', 'yml': 'yaml', 'json': 'json', 'toml': 'toml',
+    'xml': 'xml', 'xsd': 'xml', 'ini': 'ini', 'cfg': 'ini',
+    'hcl': 'hcl', 'tf': 'terraform',
+    // Shell
+    'sh': 'bash', 'bash': 'bash', 'zsh': 'zsh', 'fish': 'fish',
+    'ps1': 'powershell', 'bat': 'batch', 'cmd': 'batch',
+    // Documentation
+    'md': 'markdown', 'rst': 'rst', 'txt': 'text', 'adoc': 'asciidoc', 'tex': 'latex',
+    // Web
+    'html': 'html', 'css': 'css', 'scss': 'scss', 'less': 'less',
   };
   return langMap[ext] || 'text';
 }
@@ -206,12 +289,23 @@ function getLanguage(name: string): string {
 function getFilePriority(path: string, name: string): number {
   const lowerName = name.toLowerCase();
   const lowerPath = path.toLowerCase();
+  const ext = name.split('.').pop()?.toLowerCase() || '';
   
   // Highest priority - entry points and main files
   if (['main.py', 'app.py', 'index.ts', 'index.js', 'server.ts', 'server.js'].includes(lowerName)) return 100;
   
+  // Very high priority - notebooks (often contain key analysis/models)
+  if (ext === 'ipynb') return 95;
+  
+  // Very high priority - data files in datasets folder (need schema extraction)
+  if ((lowerPath.includes('data') || lowerPath.includes('dataset')) && 
+      ['csv', 'parquet', 'xlsx', 'xls', 'tsv'].includes(ext)) return 92;
+  
+  // High priority - statistical/modeling code
+  if (['sas', 'r', 'rmd', 'do', 'ado', 'mata'].includes(ext)) return 90;
+  
   // High priority - core implementation files
-  if (lowerPath.includes('model') && !lowerPath.includes('test')) return 90;
+  if (lowerPath.includes('model') && !lowerPath.includes('test')) return 88;
   if (lowerPath.includes('core') && !lowerPath.includes('test')) return 85;
   if (lowerPath.includes('/src/') && !lowerPath.includes('test')) return 80;
   
@@ -219,24 +313,34 @@ function getFilePriority(path: string, name: string): number {
   if (['package.json', 'requirements.txt', 'setup.py', 'pyproject.toml', 'cargo.toml', 'go.mod'].includes(lowerName)) return 75;
   if (lowerName.includes('config')) return 70;
   
+  // Medium - SQL/migrations (important for data structure)
+  if (['sql', 'ddl', 'dml'].includes(ext)) return 68;
+  
   // Medium - API and data files
   if (lowerPath.includes('api') || lowerPath.includes('route')) return 65;
   if (lowerPath.includes('data') || lowerPath.includes('schema')) return 60;
   
+  // Medium - other data files (not in datasets folder)
+  if (['csv', 'parquet', 'xlsx', 'xls', 'tsv'].includes(ext)) return 55;
+  
   // Lower - utils and helpers
   if (lowerPath.includes('util') || lowerPath.includes('helper')) return 40;
   
-  // Documentation
+  // README gets special priority (but lower than code)
+  if (lowerName === 'readme.md') return 35;
+  
+  // Documentation (other)
   if (lowerName.endsWith('.md') && lowerName !== 'readme.md') return 30;
   
   // Tests (still useful for understanding behavior)
-  if (lowerPath.includes('test')) return 20;
+  if (lowerPath.includes('test')) return 25;
   
   return 10;
 }
 
 /**
  * Fetch actual file content from GitHub
+ * For data files, returns metadata only (will use code execution for analysis)
  */
 async function fetchFileContent(
   repoName: string,
@@ -256,15 +360,23 @@ async function fetchFileContent(
       { headers }
     );
     if (!response.ok) return null;
+    
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    const isDataFile = ['csv', 'tsv', 'parquet', 'feather', 'arrow', 'xlsx', 'xls'].includes(ext);
+    
+    // For data files, only fetch first few lines for header/metadata
+    // Full analysis will be done via code execution
+    if (isDataFile) {
+      const content = await response.text();
+      const lines = content.split('\n');
+      // Return just header + a few sample rows for metadata
+      const headerLines = Math.min(10, lines.length);
+      return lines.slice(0, headerLines).join('\n') + 
+        (lines.length > headerLines ? `\n\n[NOTE: This is a data file with ${lines.length} total rows. Use code execution to analyze schema, statistics, and full content.]` : '');
+    }
+    
     const content = await response.text();
-    // Limit file size to avoid token limits (first 500 lines or 15KB)
-    const lines = content.split('\n');
-    if (lines.length > 500) {
-      return lines.slice(0, 500).join('\n') + '\n\n... [truncated, ' + (lines.length - 500) + ' more lines]';
-    }
-    if (content.length > 15000) {
-      return content.slice(0, 15000) + '\n\n... [truncated]';
-    }
+    // For code files, return FULL content (accuracy-first)
     return content;
   } catch {
     return null;
@@ -517,22 +629,46 @@ export async function buildCodeKnowledgeBase(
       throw new Error('No files found in repository. The repository might be empty, private, or the path structure is unexpected.');
     }
 
-    // Filter to source code files only
-    const codeExtensions = ['py', 'js', 'ts', 'jsx', 'tsx', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'sql', 'yaml', 'yml', 'json', 'toml', 'md', 'sh', 'bash', 'zsh', 'fish'];
+    // Filter to relevant files - COMPREHENSIVE list for all file types
+    // Code files
+    const codeExtensions = [
+      // Programming languages
+      'py', 'js', 'ts', 'jsx', 'tsx', 'java', 'go', 'rs', 'rb', 'php', 'cs', 'cpp', 'c', 'h', 'hpp',
+      'scala', 'kt', 'swift', 'lua', 'm', 'mm', 'pl', 'pm', 'jl', 'dart', 'clj', 'cljs', 'ex', 'exs',
+      // Statistical/Data Science
+      'r', 'rmd', 'sas', 'sps', 'do', 'ado', 'mata', 'sthlp', 'dta',  // SAS, SPSS, Stata
+      // Notebooks
+      'ipynb',
+      // Data files (for schema extraction)
+      'csv', 'tsv', 'parquet', 'feather', 'arrow', 'xlsx', 'xls',
+      // Config/Schema
+      'sql', 'ddl', 'dml', 'yaml', 'yml', 'json', 'toml', 'xml', 'xsd', 'ini', 'cfg', 'conf', 'env',
+      'properties', 'hcl', 'tf', 'tfvars',
+      // Documentation
+      'md', 'rst', 'txt', 'adoc', 'tex',
+      // Scripts/Shell
+      'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
+      // Build/CI
+      'dockerfile', 'makefile', 'cmake', 'gradle', 'pom',
+    ];
+    
     const sourceFiles = allFiles.filter(f => {
       const ext = f.name.split('.').pop()?.toLowerCase() || '';
       const hasExtension = ext.length > 0;
-      const isCodeFile = codeExtensions.includes(ext);
-      const isSmallEnough = f.size < 100000; // Skip very large files
+      const isRelevantFile = codeExtensions.includes(ext);
+      const isSmallEnough = true; // No size limits (accuracy-first)
       
       // Also include files without extensions if they're in common code directories
       const isInCodeDir = f.path.includes('/src/') || f.path.includes('/lib/') || f.path.includes('/app/');
       const isLikelyCode = !hasExtension && isInCodeDir;
       
-      return (isCodeFile || isLikelyCode) && isSmallEnough;
+      // Include common config files without extensions
+      const isConfigFile = ['dockerfile', 'makefile', 'gemfile', 'procfile', 'rakefile'].includes(f.name.toLowerCase());
+      
+      return (isRelevantFile || isLikelyCode || isConfigFile) && isSmallEnough;
     });
 
-    console.log(`[GitHub] Filtered to ${sourceFiles.length} source code files (from ${allFiles.length} total)`);
+    console.log(`[GitHub] Filtered to ${sourceFiles.length} relevant files (from ${allFiles.length} total)`);
 
     if (sourceFiles.length === 0) {
       // Show what files we found for debugging
@@ -544,13 +680,13 @@ export async function buildCodeKnowledgeBase(
       );
     }
 
-    // Prioritize and select top files (limit to avoid rate limits and token limits)
+    // Process ALL files - no limit for comprehensive codebase understanding
     const prioritizedFiles = sourceFiles
       .map(f => ({ ...f, priority: getFilePriority(f.path, f.name) }))
-      .sort((a, b) => b.priority - a.priority)
-      .slice(0, 15); // Fetch up to 15 most important files (balanced speed/coverage)
+      .sort((a, b) => b.priority - a.priority);
+      // NO SLICE - process all files for full codebase coverage
 
-    console.log(`[GitHub] Selected ${prioritizedFiles.length} files to analyze (top priority files)`);
+    console.log(`[GitHub] Processing ${prioritizedFiles.length} files (comprehensive coverage - no limits)`);
     onProgress?.(`Analyzing ${prioritizedFiles.length} source files...`);
 
     // Fetch actual file contents in parallel (with rate limit consideration)
@@ -971,18 +1107,100 @@ async function generateBlock(
     sectionPath: string[];
   }
 ): Promise<GeneratedBlock> {
-  console.log(`[OpenAI] Generating block: ${block.title}`);
+  console.log(`[OpenAI] Generating block: "${block.title}" (type: ${block.type || 'UNDEFINED'})`);
+  console.log(`[OpenAI] Block details:`, JSON.stringify({ id: block.id, type: block.type, title: block.title }, null, 2));
   
-  // USE REACT AGENT if available (preferred method - prevents hallucination)
+  if (block.type === 'LLM_CHART') {
+    console.log(`[OpenAI] 📊 CHART BLOCK detected: "${block.title}"`);
+    console.log(`[OpenAI] 📊 Instructions: ${block.instructions?.slice(0, 100)}...`);
+  } else if (!block.type) {
+    console.warn(`[OpenAI] ⚠️ Block "${block.title}" has no type! Defaulting to LLM_TEXT`);
+  }
+  
+  // EVIDENCE-FIRST AGENT (preferred method - audit-grade documentation)
+  if (context.useEvidenceFirst && context.codeIntelligence && context.codebase) {
+    console.log(`[OpenAI] Using EVIDENCE-FIRST agent for: ${block.title} (${block.type})`);
+    
+    const evidenceCtx: EvidenceAgentContext = {
+      openai,
+      codeIntelligence: context.codeIntelligence,
+      allFiles: context.codebase.files.map(f => ({ path: f.path, content: f.content })),
+      projectName: context.projectName,
+      config: context.evidenceConfig || DEFAULT_EVIDENCE_CONFIG,
+      repoUrl: context.repoUrl, // Pass repo URL for data file access via code execution
+      nodeSummaries: context.nodeSummaries,
+      blockType: block.type, // Pass block type for tool selection
+      onThinking: context.onThinking, // Pass thinking callback for UI display
+    };
+    
+    try {
+      const evidenceResult = await generateSectionWithEvidence(
+        evidenceCtx,
+        block.title,
+        block.instructions
+      );
+      
+      // Log evidence metrics
+      const metrics = evidenceResult.qualityMetrics;
+      console.log(`[OpenAI] Evidence agent completed: Tier-1: ${metrics.tier1Citations}/${metrics.totalCitations}, Gaps: ${evidenceResult.gaps.length}`);
+      
+      // Check if this is data-heavy and add data evidence info to content
+      let content = evidenceResult.content;
+      if (evidenceResult.evidenceBundle.dataEvidence.length > 0) {
+        content += '\n\n### Data Schema Evidence (Computed)\n\n';
+        for (const dataEv of evidenceResult.evidenceBundle.dataEvidence) {
+          content += `**${dataEv.filePath}** (${dataEv.rowCount} rows, ${dataEv.columns.length} columns)\n\n`;
+          content += '| Column | Type | Null% | Range |\n|--------|------|-------|-------|\n';
+          for (const col of dataEv.columns.slice(0, 10)) {
+            const range = col.min && col.max ? `${col.min} - ${col.max}` : '-';
+            content += `| ${col.name} | ${col.dtype} | ${col.nullPercent}% | ${range} |\n`;
+          }
+          content += '\n';
+        }
+      }
+
+      return {
+        id: block.id,
+        type: block.type as 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART',
+        title: block.title,
+        content,
+        confidence: evidenceResult.confidence,
+        citations: evidenceResult.citations,
+        ragSources: evidenceResult.ragSources || [],
+        dataEvidence: evidenceResult.dataEvidence || [],
+        generatedImage: evidenceResult.generatedImage,
+        executedCode: evidenceResult.executedCode,
+        // Store evidence bundle for gap detection
+        evidenceBundle: evidenceResult.evidenceBundle,
+        qualityMetrics: evidenceResult.qualityMetrics,
+      } as GeneratedBlock & { evidenceBundle?: EvidenceBundle; qualityMetrics?: QualityMetrics };
+    } catch (error) {
+      console.error(`[OpenAI] ❌ Evidence agent failed for "${block.title}", falling back to ReAct agent:`, error);
+      context.onThinking?.({
+        type: 'refine',
+        message: '⚠️ Evidence agent failed, using fallback',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: Date.now(),
+      });
+      // Fall through to ReAct agent
+    }
+  } else {
+    console.log(`[OpenAI] Evidence-First not available (useEvidenceFirst: ${context.useEvidenceFirst}, codeIntelligence: ${!!context.codeIntelligence}, codebase: ${!!context.codebase})`);
+  }
+  
+  // REACT AGENT (fallback - prevents hallucination)
   if (context.codeIntelligence && context.agentMemory) {
-    console.log(`[OpenAI] Using ReAct agent for: ${block.title}`);
+    console.log(`[OpenAI] Using ReAct agent for: ${block.title} (${block.type})`);
     
     const agentCtx: AgentContext = {
       openai,
       codeIntelligence: context.codeIntelligence,
       memory: context.agentMemory,
       projectName: context.projectName,
-      availableFiles: context.codebase?.files.map(f => f.path) || []
+      availableFiles: context.codebase?.files.map(f => f.path) || [],
+      repoUrl: context.repoUrl, // Pass repo URL for data access
+      blockType: block.type, // Pass block type for tool selection
+      onThinking: context.onThinking, // Pass thinking callback for UI display
     };
     
     try {
@@ -1005,6 +1223,8 @@ async function generateBlock(
         content: agentResult.content,
         confidence: agentResult.confidence,
         citations: agentResult.citations,
+        generatedImage: agentResult.generatedImage,
+        executedCode: agentResult.executedCode,
       };
     } catch (error) {
       console.error(`[OpenAI] Agent failed for "${block.title}", falling back to direct generation:`, error);
@@ -1019,8 +1239,9 @@ async function generateBlock(
   let expectedCitations: string[] = [];
   let semanticContext = '';
   
+  // OPTIMIZATION: Skip semantic search if evidence-first is enabled (already done by evidence agent)
   // BEST PRACTICE: Use semantic search if available (like Cursor does)
-  if (context.codeIntelligence) {
+  if (context.codeIntelligence && !context.useEvidenceFirst) {
     // Build a search query from block title + instructions
     const searchQuery = `${block.title} ${block.instructions.slice(0, 200)} ${block.dataSources.join(' ')}`;
     
@@ -1060,6 +1281,8 @@ ${r.chunk.content.slice(0, 1500)}
     } catch (error) {
       console.error(`[OpenAI] Semantic search failed for "${block.title}":`, error);
     }
+  } else if (context.useEvidenceFirst) {
+    console.log(`[OpenAI] Skipping semantic search (already done by evidence agent)`);
   }
   
   // Fallback to basic file matching if no semantic results
@@ -1139,10 +1362,11 @@ The section topic "${block.title}" may need to be interpreted based on what the 
 
 3. **Use [TBD] sparingly** - Only for specific numeric values that need measurement
 
-4. **Use [NEEDS: xxx] for gaps** - When you need specific business context:
-   - [NEEDS: target user demographics]
-   - [NEEDS: production deployment environment]
-   - [NEEDS: compliance requirements]
+4. **Use [NEEDS: specific description] for gaps** - When you need specific business context that isn't in code:
+   - Example: [NEEDS: target user demographics for this system]
+   - Example: [NEEDS: production deployment environment details]
+   - Example: [NEEDS: regulatory compliance requirements]
+   - IMPORTANT: Replace the description with ACTUAL context needed, never write [NEEDS: xxx] literally
 
 5. **Cite your sources** - Reference files like [filename.ext]
 
@@ -1194,17 +1418,23 @@ Analyze the code, understand what this system is, adapt the section topic approp
     let executedCode: string | undefined;
     
     // Initial API call with tools
+    // For chart blocks, force tool usage
+    const initialToolChoice: 'auto' | { type: 'function'; function: { name: string } } | undefined = 
+      block.type === 'LLM_CHART' && tools.length > 0 && tools.some(t => t.function.name === 'generate_chart')
+        ? { type: 'function', function: { name: 'generate_chart' } }
+        : tools.length > 0 ? 'auto' : undefined;
+    
     let response = await Promise.race([
       openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: systemPrompt + '\n\nYou have access to tools for generating charts, executing Python analysis, and creating tables. Use them when appropriate to enhance the documentation.' },
+          { role: 'system', content: systemPrompt + '\n\nYou have access to tools for generating charts, executing Python analysis, and creating tables. Use them when appropriate to enhance the documentation.' + (block.type === 'LLM_CHART' ? '\n\n⚠️ CRITICAL: For chart blocks, you MUST call the generate_chart tool.\n\n**SANDBOX ISOLATION:** The sandbox does NOT have access to files! You CANNOT use pd.read_csv() with file paths. You MUST use INLINE DATA in your Python code. Create data using pd.DataFrame({...}) with values directly in the code.\n\n**WRONG:** df = pd.read_csv("file.csv") - THIS WILL FAIL!\n**CORRECT:** df = pd.DataFrame({"col": [1,2,3]})' : '') },
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.5,
         max_tokens: 2000,
         tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? 'auto' : undefined,
+        tool_choice: initialToolChoice,
       }),
       new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error('OpenAI API call timed out')), 45000)
@@ -1324,12 +1554,30 @@ Analyze the code, understand what this system is, adapt the section topic approp
       }
     }
     
-    // 4. Count [TBD] occurrences for confidence calculation
+    // 4. Detect and remove hallucinated names/people (common patterns)
+    const hallucinatedNamesPatterns = [
+      /Author:\s*(John Doe|Jane Smith|Alex Johnson|Emily Davis|Michael Brown|Sarah Davis)/gi,
+      /Reviewer[s]?:\s*(John Doe|Jane Smith|Alex Johnson|Emily Davis|Michael Brown|Sarah Davis)/gi,
+      /Approver[s]?:\s*(John Doe|Jane Smith|Alex Johnson|Emily Davis|Michael Brown|Sarah Davis)/gi,
+      /(John Doe|Jane Smith|Alex Johnson|Emily Davis|Michael Brown|Sarah Davis)\s*,\s*(Senior|Risk|Model|Compliance|IT)/gi,
+    ];
+    
+    let hasHallucinatedNames = false;
+    for (const pattern of hallucinatedNamesPatterns) {
+      if (pattern.test(content)) {
+        hasHallucinatedNames = true;
+        console.warn(`[OpenAI] Hallucinated names detected in "${block.title}" - removing`);
+        // Remove the hallucinated content
+        content = content.replace(pattern, '[EVIDENCE GAP: author/reviewer information not found in codebase]');
+      }
+    }
+    
+    // 5. Count [TBD] occurrences for confidence calculation
     const tbdCount = (content.match(/\[TBD\]/gi) || []).length;
     const wordCount = content.split(/\s+/).length;
     const tbdRatio = tbdCount / Math.max(wordCount / 50, 1); // TBDs per ~50 words
     
-    // 5. Detect contradictory statements (qualitative + TBD)
+    // 6. Detect contradictory statements (qualitative + TBD)
     const contradictions = [
       /\b(high|excellent|strong|significant|robust)\s+\w*\s*\[TBD\]/gi,
       /\[TBD\]\s*%?\s*(increase|improvement|accuracy|performance)/gi,
@@ -1340,12 +1588,13 @@ Analyze the code, understand what this system is, adapt the section topic approp
       console.warn(`[OpenAI] Contradictory statements detected in "${block.title}"`);
     }
     
-    // 6. Calculate confidence based on actual quality
+    // 7. Calculate confidence based on actual quality
     let confidence = 0.9;
     if (tbdCount > 5) confidence -= 0.2;
     else if (tbdCount > 2) confidence -= 0.1;
     if (hasContradictions) confidence -= 0.15;
     if (fabricatedCitations.length > 2) confidence -= 0.1;
+    if (hasHallucinatedNames) confidence -= 0.2; // Heavy penalty for hallucinated names
     if (validCitations.length > 0) confidence += 0.05;
     confidence = Math.max(0.5, Math.min(0.98, confidence));
     
@@ -1406,11 +1655,18 @@ async function processSection(
   onProgress: (message: string) => void
 ): Promise<GeneratedSection> {
   const currentPath = [...path, section.title];
-  onProgress(`Generating: ${section.title}...`);
   
   // Generate all blocks in this section
   const blocks: GeneratedBlock[] = [];
-  for (const block of section.blocks) {
+  console.log(`[OpenAI] Processing section "${section.title}" with ${section.blocks.length} blocks`);
+  
+  for (let i = 0; i < section.blocks.length; i++) {
+    const block = section.blocks[i];
+    console.log(`[OpenAI] Generating block ${i + 1}/${section.blocks.length}: "${block.title}" (type: ${block.type})`);
+    
+    // Show both section and block in progress
+    onProgress(`Generating: ${section.title} → ${block.title} (${block.type})`);
+    
     const generatedBlock = await generateBlock(openai, context, {
       id: block.id,
       title: block.title,
@@ -1419,6 +1675,8 @@ async function processSection(
       dataSources: block.dataSources || [],
       sectionPath: currentPath,
     });
+    
+    console.log(`[OpenAI] Block "${block.title}" complete. Has image: ${!!generatedBlock.generatedImage}`);
     blocks.push(generatedBlock);
   }
   
@@ -1460,15 +1718,37 @@ async function detectGaps(
     for (const section of secs) {
       const path = [...parentPath, section.title];
       for (const block of section.blocks) {
+        // Check for [EVIDENCE GAP: xxx] markers - CRITICAL gaps from evidence-first agent
+        const evidenceGapMatches = block.content.match(/\[EVIDENCE GAP:\s*([^\]]+)\]/gi) || [];
+        for (const evidenceGapMatch of evidenceGapMatches) {
+          const gapDescription = evidenceGapMatch.replace(/\[EVIDENCE GAP:\s*/i, '').replace(/\]$/, '');
+          concreteGaps.push({
+            id: `gap-evidence-${concreteGaps.length}`,
+            sectionId: section.id,
+            sectionTitle: section.title,
+            severity: 'critical', // RED - literal missing evidence
+            description: `Missing evidence: ${gapDescription}`,
+            suggestion: `Provide code evidence or data to support this claim`,
+          });
+        }
+        
         // Check for [NEEDS: xxx] markers - specific information requests (enhancement)
         const needsMatches = block.content.match(/\[NEEDS:\s*([^\]]+)\]/gi) || [];
         for (const needsMatch of needsMatches) {
-          const infoNeeded = needsMatch.replace(/\[NEEDS:\s*/i, '').replace(/\]$/, '');
+          const infoNeeded = needsMatch.replace(/\[NEEDS:\s*/i, '').replace(/\]$/, '').trim();
+          
+          // Skip placeholder values that weren't filled in properly
+          const isPlaceholder = /^(xxx?|X+|placeholder|example|description|info|details|TBD)$/i.test(infoNeeded);
+          if (isPlaceholder || infoNeeded.length < 3) {
+            console.log('[DocGen] Skipping placeholder NEEDS marker:', infoNeeded);
+            continue;
+          }
+          
           concreteGaps.push({
             id: `gap-needs-${concreteGaps.length}`,
             sectionId: section.id,
             sectionTitle: section.title,
-            severity: 'medium',
+            severity: 'medium', // YELLOW - enhancement request
             description: `Needs additional information: ${infoNeeded}`,
             suggestion: `Please provide: ${infoNeeded}`,
           });
@@ -1692,16 +1972,17 @@ Are there gaps where more detail would improve this documentation?`,
     console.error('[DocGen] Independent reviewer pass failed:', error);
   }
   
-  // Return all gaps, prioritized by severity
+  // Return all gaps, prioritized by severity (critical/red first, then high, medium/yellow, low)
   const allGaps = concreteGaps.sort((a, b) => {
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    return severityOrder[a.severity] - severityOrder[b.severity];
+    const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (severityOrder[a.severity] ?? 99) - (severityOrder[b.severity] ?? 99);
   });
   
   if (allGaps.length > 0) {
     console.log('[DocGen] Found', allGaps.length, 'gaps:', 
+      allGaps.filter(g => g.severity === 'critical').length, 'critical (red),',
       allGaps.filter(g => g.severity === 'high').length, 'high,',
-      allGaps.filter(g => g.severity === 'medium').length, 'medium,',
+      allGaps.filter(g => g.severity === 'medium').length, 'medium (yellow),',
       allGaps.filter(g => g.severity === 'low').length, 'low');
     return allGaps.slice(0, 15); // Show more gaps
   }
@@ -1923,7 +2204,12 @@ export async function generateDocument(
               projectCache?.cachedCodeIntelligence,
               openai,
               kbCached,
-              (msg) => onProgress?.(35, msg)
+              (msg) => onProgress?.(35, msg),
+              {
+                repoUrl: context.repoUrl,
+                commitHash,
+                useEmbeddings: true, // Accuracy-first: enable embeddings for RAG
+              }
             );
             
             context.codeIntelligence = codeIntelligence;
@@ -1933,14 +2219,17 @@ export async function generateDocument(
               : `Built knowledge graph: ${codeIntelligence.chunks.length} chunks, ${codeIntelligence.relationships.length} relationships`
             );
             
-            // Update cache if we built fresh data
+            // Update cache metadata only (full data stored in IndexedDB)
             if (!kbCached || !ciCached) {
-              projectCache?.updateCache?.({
-                lastCommitHash: commitHash || undefined,
-                cachedKnowledgeBase: knowledgeBase,
-                cachedCodeIntelligence: serializeCodeIntelligence(codeIntelligence),
-              });
-              console.log('[DocGen] Updated project cache');
+              try {
+                projectCache?.updateCache?.({
+                  lastCommitHash: commitHash || undefined,
+                });
+                console.log('[DocGen] Updated project cache metadata');
+              } catch (error) {
+                console.error('[DocGen] Failed to compress and update cache:', error);
+                // Continue without caching - not critical
+              }
             }
           } catch (error) {
             console.error('[DocGen] Failed to build code intelligence:', error);
@@ -1976,6 +2265,79 @@ export async function generateDocument(
             console.error('[DocGen] Failed to initialize agent memory:', error);
           }
         }
+        
+        // Enable evidence-first mode by default for data-heavy repos
+        const hasDataFiles = knowledgeBase.files.some((f: { path: string }) => 
+          f.path.match(/\.(csv|parquet|xlsx?|json)$/i) || 
+          f.path.toLowerCase().includes('data')
+        );
+        
+        if (hasDataFiles || context.useEvidenceFirst === undefined) {
+          context.useEvidenceFirst = true;
+          context.evidenceConfig = context.evidenceConfig || DEFAULT_EVIDENCE_CONFIG;
+          console.log('[DocGen] Evidence-first mode enabled (data-heavy repo detected)');
+          onProgress?.(49, 'Evidence-first agent enabled');
+        }
+        
+        // OPTIMIZATION: Pre-process data files globally (not per-section)
+        // This avoids redundant filtering and schema audits
+        if (context.useEvidenceFirst && context.codeIntelligence) {
+          onProgress?.(49.5, 'Pre-processing data files...');
+          const dataFiles = knowledgeBase.files
+            .filter((f: { path: string }) => {
+              const { category } = classifySource(f.path);
+              return category === 'dataset';
+            })
+            .map((f: { path: string; content: string }) => ({ path: f.path, content: f.content }));
+          
+          // Store globally for reuse
+          context.globalDataFiles = dataFiles;
+          console.log(`[DocGen] Pre-processed ${dataFiles.length} data files globally`);
+          
+          // OPTIMIZATION: Batch generate node summaries for Tier-1 files upfront
+          // This avoids per-section LLM calls for the same files
+          if (context.codeIntelligence.chunks.length > 0) {
+            onProgress?.(49.7, 'Generating code summaries...');
+            const tier1Chunks = context.codeIntelligence.chunks.filter((c: CodeChunk) => {
+              const { tier } = classifySource(c.filePath);
+              return tier === 1;
+            }).slice(0, 20); // Limit to top 20 files
+            
+            const nodeSummaries: Record<string, string> = {};
+            // Reuse existing cache if available
+            if (context.nodeSummaries) {
+              Object.assign(nodeSummaries, context.nodeSummaries);
+            }
+            
+            // Batch generate summaries for files not in cache
+            const uncachedChunks = tier1Chunks.filter((c: CodeChunk) => !nodeSummaries[c.filePath]);
+            if (uncachedChunks.length > 0) {
+              console.log(`[DocGen] Batch generating ${uncachedChunks.length} node summaries...`);
+              // Generate in parallel (but limit concurrency)
+              const batchSize = 5;
+              for (let i = 0; i < uncachedChunks.length; i += batchSize) {
+                const batch = uncachedChunks.slice(i, i + batchSize);
+                await Promise.all(batch.map(async (chunk: CodeChunk) => {
+                  try {
+                    const summary = await generateNodeSummary(
+                      openai,
+                      chunk,
+                      context.codeIntelligence!.relationships
+                    );
+                    if (summary) {
+                      nodeSummaries[chunk.filePath] = summary;
+                    }
+                  } catch (error) {
+                    console.warn(`[DocGen] Failed to generate summary for ${chunk.filePath}:`, error);
+                  }
+                }));
+              }
+              console.log(`[DocGen] Generated ${Object.keys(nodeSummaries).length} node summaries`);
+            }
+            
+            context.nodeSummaries = nodeSummaries;
+          }
+        }
       } catch (error) {
         console.error('[DocGen] Failed to build code knowledge base:', error);
         onProgress?.(20, 'Repository analysis partially completed');
@@ -1986,6 +2348,20 @@ export async function generateDocument(
     const allBlocks = flattenTemplateBlocks(context.template);
     const totalBlocks = allBlocks.length;
     let completedBlocks = 0;
+    
+    // Debug: Log all blocks being processed
+    console.log(`[DocGen] Template has ${totalBlocks} blocks to generate:`);
+    allBlocks.forEach((b, i) => {
+      console.log(`  ${i + 1}. [${b.blockType}] ${b.sectionTitle} → ${b.blockTitle}`);
+    });
+    
+    // Check specifically for chart blocks
+    const chartBlocks = allBlocks.filter(b => b.blockType === 'LLM_CHART');
+    if (chartBlocks.length > 0) {
+      console.log(`[DocGen] 📊 Found ${chartBlocks.length} chart blocks:`, chartBlocks.map(b => b.blockTitle));
+    } else {
+      console.log(`[DocGen] ⚠️ No LLM_CHART blocks found in template`);
+    }
     
     onProgress?.(15, `Generating ${totalBlocks} content blocks...`);
     
@@ -2011,6 +2387,80 @@ export async function generateDocument(
     const gaps = await detectGaps(openai, sections, context);
     console.log('[DocGen] Found', gaps.length, 'documentation gaps');
     
+    // Calculate evidence quality metrics if evidence-first mode was used
+    let qualityMetrics: DocumentQualityMetrics | undefined;
+    let thresholdViolations: Array<{ metric: string; value: number; threshold: number; severity: 'warning' | 'error' }> | undefined;
+    
+    if (context.useEvidenceFirst) {
+      onProgress?.(92, 'Calculating evidence quality metrics...');
+      
+      // Collect all citations and classify them
+      const allCitations = new Map<string, string[]>();
+      const allBundles: EvidenceBundle[] = [];
+      
+      const collectCitations = (secs: GeneratedSection[]) => {
+        for (const sec of secs) {
+          const citations: string[] = [];
+          for (const block of sec.blocks) {
+            citations.push(...block.citations);
+            // Check for evidence bundle stored on block
+            const blockWithEvidence = block as GeneratedBlock & { evidenceBundle?: EvidenceBundle };
+            if (blockWithEvidence.evidenceBundle) {
+              allBundles.push(blockWithEvidence.evidenceBundle);
+            }
+          }
+          allCitations.set(sec.id, citations);
+          if (sec.subsections) {
+            collectCitations(sec.subsections);
+          }
+        }
+      };
+      
+      collectCitations(sections);
+      
+      // Collect all node summaries from evidence bundles
+      const allNodeSummaries = new Map<string, string>();
+      for (const bundle of allBundles) {
+        bundle.nodeSummaries.forEach((summary, filePath) => {
+          if (!allNodeSummaries.has(filePath) || summary.length > (allNodeSummaries.get(filePath)?.length || 0)) {
+            allNodeSummaries.set(filePath, summary);
+          }
+        });
+      }
+      
+      // Store node summaries in project cache
+      if (allNodeSummaries.size > 0 && projectCache?.updateCache) {
+        const summariesObj: Record<string, string> = {};
+        allNodeSummaries.forEach((summary, path) => {
+          summariesObj[path] = summary;
+        });
+        projectCache.updateCache({
+          nodeSummaries: summariesObj,
+        });
+        console.log(`[DocGen] Stored ${allNodeSummaries.size} node summaries in project cache`);
+      }
+      
+      // Calculate metrics
+      if (allBundles.length > 0) {
+        const metrics = calculateQualityMetrics(allBundles, allCitations);
+        qualityMetrics = metrics;
+        thresholdViolations = checkQualityThresholds(metrics, context.evidenceConfig || DEFAULT_EVIDENCE_CONFIG);
+        
+        console.log('[DocGen] Evidence quality metrics:', {
+          tier1Percent: metrics.tier1CitationPercent,
+          tier1Coverage: metrics.tier1SectionCoverage,
+          uncovered: metrics.uncoveredSectionsCount,
+          violations: thresholdViolations.length,
+        });
+        
+        // Note: Threshold violations are shown in the Evidence Quality panel (UI)
+        // and stored in the return object. We don't add them as gaps because:
+        // 1. They're meta-level quality metrics, not content gaps
+        // 2. The actual content gaps ([EVIDENCE GAP: ...] markers) are already detected above
+        // 3. Adding them as gaps creates confusing duplicate "Document Quality" entries
+      }
+    }
+    
     onProgress?.(98, 'Finalizing document...');
     
     console.log('[DocGen] Document generation complete:', sections.length, 'sections');
@@ -2019,6 +2469,8 @@ export async function generateDocument(
       documentTitle: `${context.projectName} - ${context.template.name}`,
       sections,
       gaps,
+      qualityMetrics,
+      thresholdViolations,
     };
   } catch (error) {
     console.error('[DocGen] Fatal error during generation:', error);

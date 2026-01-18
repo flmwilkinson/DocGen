@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   ArrowLeft,
   FolderKanban,
@@ -16,15 +17,11 @@ import {
   Database,
   ChevronRight,
   Trash2,
+  Plus,
+  Sparkles,
 } from 'lucide-react';
 import { useProjectsStore, type Artifact } from '@/store/projects';
-
-// Sample templates for selection
-const availableTemplates = [
-  { id: 'tpl-1', name: 'Model Documentation', description: 'Complete ML model documentation' },
-  { id: 'tpl-2', name: 'API Technical Spec', description: 'REST API documentation' },
-  { id: 'tpl-3', name: 'Model Validation Report', description: 'Validation and testing report' },
-];
+import { useTemplatesStore } from '@/store/templates';
 
 type Step = 'details' | 'source' | 'artifacts' | 'template' | 'review';
 
@@ -49,6 +46,10 @@ export default function NewProjectPage() {
   const searchParams = useSearchParams();
   const preselectedTemplate = searchParams.get('template') || '';
   
+  // Get all templates from store
+  const templates = useTemplatesStore((state) => state.templates);
+  const getTemplate = useTemplatesStore((state) => state.getTemplate);
+  
   const [currentStep, setCurrentStep] = useState<Step>('details');
   const [isLoading, setIsLoading] = useState(false);
   const [repoStatus, setRepoStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
@@ -71,7 +72,7 @@ export default function NewProjectPage() {
     { key: 'details', label: 'Project Details' },
     { key: 'source', label: 'Code Source' },
     { key: 'artifacts', label: 'Reference Data', optional: true },
-    { key: 'template', label: 'Template' },
+    { key: 'template', label: 'Template', optional: true },
     { key: 'review', label: 'Review & Create' },
   ];
 
@@ -184,14 +185,18 @@ export default function NewProjectPage() {
         ? projectData.uploadedFiles.map(f => f.name) 
         : undefined,
       templateId: projectData.templateId,
-      templateName: availableTemplates.find(t => t.id === projectData.templateId)?.name || 'Unknown',
+      templateName: getTemplate(projectData.templateId)?.name || 'No template selected',
       artifacts: artifacts as Artifact[],
     });
     
     setIsLoading(false);
     
-    // Navigate to the new project and start generation
-    router.push(`/projects/${newProjectId}?generate=true`);
+    // Navigate to the new project (start generation only if a template was selected)
+    if (projectData.templateId) {
+      router.push(`/projects/${newProjectId}?generate=true`);
+    } else {
+      router.push(`/projects/${newProjectId}`);
+    }
   };
 
   const canProceed = () => {
@@ -210,7 +215,7 @@ export default function NewProjectPage() {
         // Artifacts are optional, always allow proceeding
         return true;
       case 'template':
-        return projectData.templateId !== '';
+        return true;
       case 'review':
         return true;
       default:
@@ -256,7 +261,7 @@ export default function NewProjectPage() {
       </div>
 
       {/* Progress Steps */}
-      <div className="flex items-center justify-between overflow-x-auto pb-2 shrink-0 mb-6">
+      <div className="flex items-center justify-between overflow-x-auto pb-2 shrink-0 mb-8 mt-8">
         {steps.map((step, idx) => (
           <div key={step.key} className="flex items-center shrink-0">
             <div className="flex items-center gap-2">
@@ -265,7 +270,7 @@ export default function NewProjectPage() {
                   ? 'bg-brand-orange text-white'
                   : idx === currentStepIndex
                   ? 'bg-brand-orange/20 text-brand-orange border-2 border-brand-orange'
-                  : 'bg-glass-bg text-muted-foreground'
+                  : 'bg-secondary/50 dark:bg-secondary/30 text-foreground'
               }`}>
                 {idx < currentStepIndex ? <CheckCircle2 className="h-4 w-4" /> : idx + 1}
               </div>
@@ -548,57 +553,84 @@ export default function NewProjectPage() {
           <div className="space-y-6">
             <div>
               <h2 className="text-lg font-medium mb-1">Choose a Template</h2>
-              <p className="text-sm text-muted-foreground">Select a documentation template to structure your output</p>
+              <p className="text-sm text-muted-foreground">
+                Select a documentation template to structure your output (optional)
+              </p>
             </div>
 
-            <div className="space-y-3">
-              {availableTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  onClick={() => setProjectData(prev => ({ ...prev, templateId: template.id }))}
-                  className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
-                    projectData.templateId === template.id
-                      ? 'border-brand-orange bg-brand-orange/5'
-                      : 'border-glass-border hover:border-brand-orange/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+            <div className="max-h-[400px] overflow-y-auto custom-scrollbar space-y-3 pr-1">
+              {templates.length > 0 ? (
+                templates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => setProjectData(prev => ({ ...prev, templateId: template.id }))}
+                    className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
                       projectData.templateId === template.id
-                        ? 'bg-brand-orange/20'
-                        : 'bg-glass-bg'
-                    }`}>
-                      <LayoutTemplate className={`h-5 w-5 ${
-                        projectData.templateId === template.id ? 'text-brand-orange' : 'text-muted-foreground'
-                      }`} />
+                        ? 'border-brand-orange bg-brand-orange/5'
+                        : 'border-glass-border hover:border-brand-orange/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                        projectData.templateId === template.id
+                          ? 'bg-brand-orange/20'
+                          : 'bg-secondary/50 dark:bg-secondary/30'
+                      }`}>
+                        <LayoutTemplate className={`h-5 w-5 ${
+                          projectData.templateId === template.id ? 'text-brand-orange' : 'text-foreground'
+                        }`} />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-medium text-foreground">{template.name}</h3>
+                        <p className="text-sm text-muted-foreground">{template.description}</p>
+                      </div>
+                      {projectData.templateId === template.id && (
+                        <CheckCircle2 className="h-5 w-5 text-brand-orange shrink-0" />
+                      )}
                     </div>
-                    <div>
-                      <h3 className="font-medium">{template.name}</h3>
-                      <p className="text-sm text-muted-foreground">{template.description}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <LayoutTemplate className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No templates available</p>
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={() => router.push('/templates')}
-              className="text-sm text-brand-orange hover:underline"
-            >
-              Browse all templates →
-            </button>
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => setProjectData(prev => ({ ...prev, templateId: '' }))}
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                disabled={!projectData.templateId}
+              >
+                Clear selection
+              </button>
+              <Link
+                href="/templates/new"
+                className="text-sm text-brand-orange hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Create new template
+              </Link>
+            </div>
           </div>
         )}
 
         {/* Step 5: Review */}
-        {currentStep === 'review' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-medium mb-1">Review & Create</h2>
-              <p className="text-sm text-muted-foreground">Review your project settings before creating</p>
-            </div>
+        {currentStep === 'review' && (() => {
+          const hasSource = projectData.sourceType === 'github' || projectData.uploadedFiles.length > 0;
+          const hasTemplate = !!projectData.templateId;
+          const selectedTemplate = getTemplate(projectData.templateId);
+          
+          return (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-medium mb-1">Review & Create</h2>
+                <p className="text-sm text-muted-foreground">Review your project settings before creating</p>
+              </div>
 
-            <div className="space-y-4">
+              <div className="space-y-4">
               <div className="p-4 bg-glass-bg rounded-lg">
                 <p className="text-xs text-muted-foreground uppercase mb-1">Project Name</p>
                 <p className="font-medium">{projectData.name}</p>
@@ -650,23 +682,53 @@ export default function NewProjectPage() {
                 <div className="flex items-center gap-2">
                   <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">
-                    {availableTemplates.find(t => t.id === projectData.templateId)?.name || 'Unknown'}
+                    {getTemplate(projectData.templateId)?.name || 'No template selected'}
                   </span>
                 </div>
               </div>
-            </div>
+              </div>
 
-            <div className="p-4 border border-brand-orange/50 bg-brand-orange/5 rounded-lg">
-              <p className="text-sm">
-                <strong>Next steps:</strong> After creating, we'll analyze your codebase and generate documentation based on the selected template. This typically takes 2-5 minutes.
-              </p>
+              {/* Dynamic next steps based on selections */}
+              <div className="space-y-3">
+                {hasTemplate && selectedTemplate && (
+                  <div className="p-4 border border-brand-orange/50 bg-brand-orange/5 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <Sparkles className="h-5 w-5 text-brand-orange shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground mb-1">What happens next</p>
+                        <p className="text-sm text-muted-foreground">
+                          We'll analyze your {projectData.sourceType === 'github' ? 'GitHub repository' : 'uploaded files'}, build a knowledge graph with semantic embeddings, and generate documentation using the <strong>{selectedTemplate.name}</strong> template. This typically takes 5-15 minutes depending on repository size.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {!hasTemplate && (
+                  <div className="p-4 border border-green-500/50 bg-green-500/5 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground mb-1">Project created instantly</p>
+                        <p className="text-sm text-muted-foreground">
+                          Your project will be created and you'll be taken to the project page. From there you can:
+                        </p>
+                        <ul className="text-sm text-muted-foreground mt-2 list-disc list-inside space-y-1">
+                          <li>View the <strong>Knowledge Graph</strong> to explore your codebase (analysis runs on demand)</li>
+                          <li>Generate documentation by selecting a template</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex justify-between">
+      <div className="flex justify-between mt-8 pt-6 border-t border-glass-border">
         <button
           onClick={prevStep}
           disabled={currentStepIndex === 0}
@@ -687,7 +749,12 @@ export default function NewProjectPage() {
                 Creating...
               </>
             ) : (
-              'Create Project & Generate'
+              <>
+                {projectData.templateId 
+                  ? 'Create Project & Generate Documentation'
+                  : 'Create Project'
+                }
+              </>
             )}
           </button>
         ) : (

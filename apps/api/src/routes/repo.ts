@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { Queue } from 'bullmq';
-import { redis } from '../lib/redis';
+import { redis, isRedisAvailable } from '../lib/redis';
 
-// Initialize queue for repo processing
-const repoQueue = new Queue('repo-processing', {
-  connection: redis,
-});
+// Initialize queue for repo processing (only if Redis is available)
+let repoQueue: Queue | null = null;
+if (isRedisAvailable() && redis) {
+  repoQueue = new Queue('repo-processing', {
+    connection: redis,
+  });
+}
 
 const CloneRepoSchema = z.object({
   projectId: z.string().uuid(),
@@ -42,19 +45,30 @@ export const repoRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    // Queue the cloning job
-    await repoQueue.add('clone-repo', {
-      snapshotId: snapshot.id,
-      repoUrl: body.repoUrl,
-      branch: body.branch,
-    }, {
-      jobId: `clone-${snapshot.id}`,
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 1000,
-      },
-    });
+    // Queue the cloning job (if Redis is available)
+    if (repoQueue) {
+      await repoQueue.add('clone-repo', {
+        snapshotId: snapshot.id,
+        repoUrl: body.repoUrl,
+        branch: body.branch,
+      }, {
+        jobId: `clone-${snapshot.id}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      });
+    } else {
+      // If Redis is not available, update status to indicate it needs manual processing
+      await app.prisma.repoSnapshot.update({
+        where: { id: snapshot.id },
+        data: {
+          status: 'PENDING',
+          // Note: In a production system, you'd want a worker to process this
+        },
+      });
+    }
 
     // Update project with repo URL
     await app.prisma.project.update({

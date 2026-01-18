@@ -14,6 +14,12 @@
 
 import OpenAI from 'openai';
 import { CodeIntelligenceResult, CodeChunk, semanticSearch } from './code-intelligence';
+import {
+  getAvailableTools,
+  executeTool,
+  formatToolResultForDocument,
+  ToolContext,
+} from './llm-tools';
 
 // =============================================================================
 // TYPES
@@ -26,12 +32,26 @@ export interface AgentMemory {
   sectionsGenerated: string[];             // Sections we've already written
 }
 
+// Thinking step for UI display
+export interface ThinkingStep {
+  type: 'think' | 'search' | 'observe' | 'draft' | 'verify' | 'refine' | 'tool' | 'complete';
+  message: string;
+  details?: string;
+  iteration?: number;
+  timestamp: number;
+}
+
+export type OnThinkingCallback = (step: ThinkingStep) => void;
+
 export interface AgentContext {
   openai: OpenAI;
   codeIntelligence: CodeIntelligenceResult;
   memory: AgentMemory;
   projectName: string;
   availableFiles: string[];                // List of files that actually exist
+  repoUrl?: string;                        // Optional repo URL for data access
+  blockType?: 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART'; // Block type for tool selection
+  onThinking?: OnThinkingCallback;         // Callback to emit thinking steps
 }
 
 export interface ThinkResult {
@@ -64,6 +84,8 @@ export interface AgentResult {
   confidence: number;
   searchIterations: number;
   verificationPassed: boolean;
+  generatedImage?: { base64: string; mimeType: string };
+  executedCode?: string;
 }
 
 // =============================================================================
@@ -201,7 +223,7 @@ function observe(searchResults: SearchResult[]): string {
 }
 
 /**
- * DRAFT: Write content based on observations
+ * DRAFT: Write content based on observations (WITH TOOL SUPPORT)
  */
 async function draft(
   ctx: AgentContext,
@@ -209,13 +231,33 @@ async function draft(
   sectionInstructions: string,
   observation: string,
   availableCitations: string[]
-): Promise<DraftResult> {
-  const response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      {
-        role: 'system',
-        content: `You are writing documentation based on ACTUAL code you've found.
+): Promise<DraftResult & { generatedImage?: { base64: string; mimeType: string }; executedCode?: string }> {
+  // Get available tools
+  const tools = await getAvailableTools();
+  const hasChartTool = tools.some(t => t.function.name === 'generate_chart');
+  
+  console.log(`[Agent Draft] Block type: ${ctx.blockType}, Has chart tool: ${hasChartTool}, Tools available: ${tools.map(t => t.function.name).join(', ')}`);
+  
+  // Warn if chart tool is not available for chart blocks
+  if (ctx.blockType === 'LLM_CHART') {
+    if (!hasChartTool) {
+      console.warn(`[Agent Draft] ⚠️ Chart block but sandbox not available!`);
+      emitThinking(ctx, 'tool', '⚠️ Sandbox not running - charts disabled', 'Run: docker-compose up sandbox-python -d');
+    } else {
+      console.log(`[Agent Draft] ✅ Chart block with sandbox available - will use generate_chart tool`);
+      emitThinking(ctx, 'tool', '🎨 Chart generation ready', 'Sandbox connected');
+    }
+  }
+  
+  const toolContext: ToolContext = {
+    projectName: ctx.projectName,
+    repoUrl: ctx.repoUrl,
+    codebaseFiles: ctx.availableFiles,
+    currentSection: sectionTitle,
+  };
+  
+  // Build system prompt with tool instructions
+  let systemPrompt = `You are writing documentation based on ACTUAL code you've found.
 
 ## CRITICAL RULES
 1. ONLY describe what you see in the code provided
@@ -228,11 +270,57 @@ async function draft(
 ${ctx.memory.codebaseUnderstanding}
 
 ## Previously confirmed facts:
-${ctx.memory.confirmedFacts.slice(-5).join('\n') || 'None yet'}`
-      },
-      {
-        role: 'user',
-        content: `Write the "${sectionTitle}" section.
+${ctx.memory.confirmedFacts.slice(-5).join('\n') || 'None yet'}`;
+
+  // Add tool instructions if this is a chart block
+  if (ctx.blockType === 'LLM_CHART' && tools.length > 0) {
+    systemPrompt += `\n\n## ⚠️ CHART GENERATION REQUIRED ⚠️
+
+You MUST use the generate_chart tool to create a visualization.
+
+**IMPORTANT - SANDBOX ISOLATION:**
+The sandbox does NOT have access to files. You CANNOT use pd.read_csv() with file paths.
+You MUST use INLINE DATA in your Python code.
+
+**DO NOT:**
+- Use pd.read_csv('path/to/file.csv') - FILES DO NOT EXIST IN SANDBOX
+- Just describe a chart in text
+
+**YOU MUST:**
+1. Use INLINE DATA (pd.DataFrame with dict, np.array, or lists)
+2. Write matplotlib code that will execute
+3. The chart will be embedded automatically
+
+**CORRECT Example:**
+\`\`\`python
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Use INLINE DATA - copy values directly!
+data = pd.DataFrame({
+    'Category': ['A', 'B', 'C'],
+    'Value': [10, 25, 15]
+})
+plt.bar(data['Category'], data['Value'])
+plt.title('Example Chart')
+\`\`\`
+
+**WRONG Example:**
+\`\`\`python
+# THIS WILL FAIL!
+df = pd.read_csv('some/file.csv')  # ❌ File doesn't exist
+\`\`\``;
+  } else if (tools.length > 0) {
+    systemPrompt += `\n\n## AVAILABLE TOOLS
+You have access to tools for:
+- generate_chart: Create matplotlib visualizations (use when data visualization is needed)
+- execute_python_analysis: Run Python code for data analysis or calculations
+- create_data_table: Format data as markdown tables
+
+Use these tools when appropriate to enhance the documentation.`;
+  }
+
+  const userPrompt = `Write the "${sectionTitle}" section.
 
 Instructions: ${sectionInstructions}
 
@@ -244,15 +332,96 @@ ${observation}
 The title will be rendered separately. Start directly with your content.
 
 Based on the code above, write this section. Cite files as [filename.ext].
-If the code doesn't contain what's needed for this section, adapt the section to describe what IS there.`
-      }
+If the code doesn't contain what's needed for this section, adapt the section to describe what IS there.`;
+
+  // Track tool outputs
+  let content = '';
+  let generatedImage: { base64: string; mimeType: string } | undefined;
+  let executedCode: string | undefined;
+
+  // Initial API call with tools
+  let response = await ctx.openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
     ],
     temperature: 0.4,
-    max_tokens: 1500
+    max_tokens: 1500,
+    tools: tools.length > 0 ? tools : undefined,
+    tool_choice: ctx.blockType === 'LLM_CHART' && tools.length > 0 && tools.some(t => t.function.name === 'generate_chart')
+      ? { type: 'function' as const, function: { name: 'generate_chart' } }
+      : tools.length > 0 ? 'auto' : undefined,
   });
 
-  const content = response.choices[0]?.message?.content || '';
-  
+  // Handle tool calls in a loop
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+
+  let iterations = 0;
+  const maxIterations = 3;
+
+  while (response.choices[0]?.message?.tool_calls && iterations < maxIterations) {
+    iterations++;
+    const toolCalls = response.choices[0].message.tool_calls;
+    console.log(`[ReAct Agent] Tool calls requested:`, toolCalls.map(tc => tc.function.name));
+
+    // Add assistant message with tool calls
+    messages.push({
+      role: 'assistant',
+      content: response.choices[0].message.content || null,
+      tool_calls: toolCalls,
+    });
+
+    // Execute tools
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+      const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+
+      try {
+        const toolResult = await executeTool(toolName, toolArgs, toolContext);
+
+        // Format tool result for document
+        const formattedResult = formatToolResultForDocument(toolName, toolResult);
+
+        // Store chart image if generated
+        if (toolName === 'generate_chart' && formattedResult.generatedImage) {
+          generatedImage = formattedResult.generatedImage;
+          executedCode = formattedResult.executedCode;
+        }
+
+        // Add tool result to messages
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult),
+        });
+      } catch (error) {
+        console.error(`[ReAct Agent] Tool execution failed:`, error);
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
+        });
+      }
+    }
+
+    // Continue conversation with tool results
+    response = await ctx.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      temperature: 0.4,
+      max_tokens: 1500,
+      tools: tools.length > 0 ? tools : undefined,
+      tool_choice: 'auto',
+    });
+  }
+
+  // Get final content
+  content = response.choices[0]?.message?.content || '';
+
   // Extract citations
   const citationRegex = /\[([^\]]+\.[a-zA-Z]+(?::\d+-\d+)?)\]/g;
   const citations: string[] = [];
@@ -260,11 +429,13 @@ If the code doesn't contain what's needed for this section, adapt the section to
   while ((match = citationRegex.exec(content)) !== null) {
     citations.push(match[1].split(':')[0]); // Remove line numbers
   }
-  
+
   return {
     content,
     citations: [...new Set(citations)],
-    confidence: 0.8
+    confidence: 0.8,
+    generatedImage,
+    executedCode,
   };
 }
 
@@ -338,6 +509,25 @@ function refine(content: string, invalidCitations: string[]): string {
 // =============================================================================
 
 /**
+ * Helper to emit thinking steps
+ */
+function emitThinking(
+  ctx: AgentContext, 
+  type: ThinkingStep['type'], 
+  message: string, 
+  details?: string,
+  iteration?: number
+) {
+  ctx.onThinking?.({
+    type,
+    message,
+    details,
+    iteration,
+    timestamp: Date.now(),
+  });
+}
+
+/**
  * Run the ReAct agent to generate a documentation section
  */
 export async function generateWithAgent(
@@ -346,7 +536,9 @@ export async function generateWithAgent(
   sectionInstructions: string,
   maxIterations: number = 3
 ): Promise<AgentResult> {
-  console.log(`[Agent] Starting generation for: ${sectionTitle}`);
+  const blockTypeLabel = ctx.blockType === 'LLM_CHART' ? '📊 Chart' : ctx.blockType === 'LLM_TABLE' ? '📋 Table' : '📝 Text';
+  console.log(`[Agent] Starting generation for: ${sectionTitle} (${ctx.blockType})`);
+  emitThinking(ctx, 'think', `${blockTypeLabel}: "${sectionTitle}"`, ctx.blockType === 'LLM_CHART' ? 'Will attempt chart generation' : undefined, 0);
   
   let iterations = 0;
   let bestDraft: DraftResult | null = null;
@@ -357,6 +549,8 @@ export async function generateWithAgent(
     
     // THINK: What do I need to find?
     console.log(`[Agent] Iteration ${i + 1}: THINKING...`);
+    emitThinking(ctx, 'think', `Reasoning about what to search for...`, undefined, i + 1);
+    
     const thinking = await think(
       ctx, 
       sectionTitle, 
@@ -364,19 +558,25 @@ export async function generateWithAgent(
       bestDraft?.content
     );
     console.log(`[Agent] Reasoning: ${thinking.reasoning.slice(0, 100)}...`);
+    emitThinking(ctx, 'think', thinking.reasoning.slice(0, 150), undefined, i + 1);
     
     // ACT: Search for relevant code
     console.log(`[Agent] SEARCHING for: ${thinking.searchQueries.join(', ')}`);
+    emitThinking(ctx, 'search', `Searching codebase...`, thinking.searchQueries.join(', '), i + 1);
+    
     const searchResults = await search(ctx, thinking.searchQueries);
     
     // OBSERVE: Analyze what we found
     const observation = observe(searchResults);
     const availableCitations = searchResults.flatMap(r => r.chunks.map(c => c.filePath));
     console.log(`[Agent] Found ${availableCitations.length} potential citations`);
+    emitThinking(ctx, 'observe', `Found ${availableCitations.length} relevant code chunks`, availableCitations.slice(0, 5).join(', '), i + 1);
     
     // DRAFT: Write content
     console.log(`[Agent] DRAFTING content...`);
-    const draft = await draft(
+    emitThinking(ctx, 'draft', `Writing documentation...`, undefined, i + 1);
+    
+    const draftResult = await draft(
       ctx, 
       sectionTitle, 
       sectionInstructions, 
@@ -386,41 +586,49 @@ export async function generateWithAgent(
     
     // VERIFY: Check for hallucinations
     console.log(`[Agent] VERIFYING draft...`);
-    const verification = verify(ctx, draft);
+    emitThinking(ctx, 'verify', `Verifying content against codebase...`, undefined, i + 1);
+    
+    const verification = verify(ctx, draftResult);
     
     if (verification.isValid) {
       console.log(`[Agent] Verification PASSED on iteration ${i + 1}`);
+      emitThinking(ctx, 'complete', `✅ Verified and complete!`, `${draftResult.citations.length} citations`, i + 1);
       
       // Add confirmed facts to memory
-      const confirmedFact = `Section "${sectionTitle}" uses files: ${draft.citations.join(', ')}`;
+      const confirmedFact = `Section "${sectionTitle}" uses files: ${draftResult.citations.join(', ')}`;
       ctx.memory.confirmedFacts.push(confirmedFact);
       
       return {
-        content: draft.content,
-        citations: draft.citations,
-        confidence: draft.confidence,
+        content: draftResult.content,
+        citations: draftResult.citations,
+        confidence: draftResult.confidence,
         searchIterations: iterations,
-        verificationPassed: true
+        verificationPassed: true,
+        generatedImage: draftResult.generatedImage,
+        executedCode: draftResult.executedCode,
       };
     }
     
     console.log(`[Agent] Verification FAILED: ${verification.issues.join(', ')}`);
+    emitThinking(ctx, 'verify', `⚠️ Found issues, refining...`, verification.issues.join(', '), i + 1);
     
     // Store best draft so far
-    if (!bestDraft || draft.citations.length > bestDraft.citations.length) {
-      bestDraft = draft;
+    if (!bestDraft || draftResult.citations.length > bestDraft.citations.length) {
+      bestDraft = draftResult;
       lastVerification = verification;
     }
     
     // If we have invalid citations, try with more specific searches
     if (verification.invalidCitations.length > 0 && i < maxIterations - 1) {
       console.log(`[Agent] Will retry with more specific searches...`);
+      emitThinking(ctx, 'refine', `Retrying with refined search...`, undefined, i + 1);
       continue;
     }
   }
   
   // If we couldn't pass verification, refine the best draft
   console.log(`[Agent] Max iterations reached, refining best draft...`);
+  emitThinking(ctx, 'refine', `Finalizing best draft...`, undefined, iterations);
   
   if (bestDraft && lastVerification) {
     const refinedContent = refine(bestDraft.content, lastVerification.invalidCitations);
@@ -430,7 +638,9 @@ export async function generateWithAgent(
       citations: bestDraft.citations.filter(c => !lastVerification!.invalidCitations.includes(c)),
       confidence: bestDraft.confidence * 0.8, // Lower confidence for unverified
       searchIterations: iterations,
-      verificationPassed: false
+      verificationPassed: false,
+      generatedImage: bestDraft.generatedImage,
+      executedCode: bestDraft.executedCode,
     };
   }
   
@@ -440,7 +650,7 @@ export async function generateWithAgent(
     citations: ctx.availableFiles.slice(0, 3),
     confidence: 0.5,
     searchIterations: iterations,
-    verificationPassed: false
+    verificationPassed: false,
   };
 }
 

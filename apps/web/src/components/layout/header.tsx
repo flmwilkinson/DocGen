@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { Bell, Search, Settings, LogOut, User, Moon, Sun, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { useProjectsStore } from '@/store/projects';
-import { notificationService } from '@/lib/notifications';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,17 +20,36 @@ export function Header() {
   const { theme, setTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
-  const runs = useProjectsStore((state) => state.runs);
-  const getProject = useProjectsStore((state) => state.getProject);
   
-  // Get running and recent completed runs
-  const runningRuns = runs.filter(r => r.status === 'RUNNING');
-  const recentCompleted = runs
-    .filter(r => r.status === 'COMPLETED' && r.completedAt)
-    .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())
-    .slice(0, 5);
+  // Only subscribe to the minimal data needed - count of running and completed runs
+  // This prevents re-renders when other run data changes
+  const runCounts = useProjectsStore(useCallback((state) => {
+    const running = state.runs.filter(r => r.status === 'RUNNING').length;
+    const completed = state.runs.filter(r => r.status === 'COMPLETED').length;
+    return { running, completed };
+  }, []));
   
-  const hasNotifications = runningRuns.length > 0 || recentCompleted.length > 0;
+  const hasNotifications = runCounts.running > 0 || runCounts.completed > 0;
+  
+  // Only fetch full runs data when notifications panel is open
+  const { runningRuns, recentCompleted } = useMemo(() => {
+    if (!showNotifications) {
+      return { runningRuns: [], recentCompleted: [] };
+    }
+    // Get fresh data from store when panel is opened
+    const state = useProjectsStore.getState();
+    const running = state.runs.filter(r => r.status === 'RUNNING');
+    const recent = state.runs
+      .filter(r => r.status === 'COMPLETED' && r.completedAt)
+      .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())
+      .slice(0, 5);
+    return { runningRuns: running, recentCompleted: recent };
+  }, [showNotifications]);
+  
+  // Get project name without subscribing to the store
+  const getProjectName = useCallback((projectId: string) => {
+    return useProjectsStore.getState().getProject(projectId)?.name || 'Unknown project';
+  }, []);
 
   const handleSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -113,9 +131,7 @@ export function Header() {
                         Running ({runningRuns.length})
                       </p>
                       <div className="space-y-2">
-                        {runningRuns.map((run) => {
-                          const project = getProject(run.projectId);
-                          return (
+                        {runningRuns.map((run) => (
                             <div
                               key={run.id}
                               className="flex items-center gap-3 p-2 rounded-lg bg-glass-bg"
@@ -124,7 +140,7 @@ export function Header() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{run.templateName}</p>
                                 <p className="text-xs text-muted-foreground truncate">
-                                  {project?.name || 'Unknown project'}
+                                  {getProjectName(run.projectId)}
                                 </p>
                                 <div className="mt-1 w-full h-1 bg-glass-bg rounded-full overflow-hidden">
                                   <div 
@@ -134,8 +150,7 @@ export function Header() {
                                 </div>
                               </div>
                             </div>
-                          );
-                        })}
+                          ))}
                       </div>
                     </div>
                   )}
@@ -147,9 +162,7 @@ export function Header() {
                         Recent ({recentCompleted.length})
                       </p>
                       <div className="space-y-2">
-                        {recentCompleted.map((run) => {
-                          const project = getProject(run.projectId);
-                          return (
+                        {recentCompleted.map((run) => (
                             <button
                               key={run.id}
                               onClick={() => {
@@ -162,12 +175,11 @@ export function Header() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{run.templateName}</p>
                                 <p className="text-xs text-muted-foreground truncate">
-                                  {project?.name || 'Unknown project'}
+                                  {getProjectName(run.projectId)}
                                 </p>
                               </div>
                             </button>
-                          );
-                        })}
+                          ))}
                       </div>
                     </div>
                   )}

@@ -1,12 +1,15 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { Queue } from 'bullmq';
-import { redis } from '../lib/redis';
+import { redis, isRedisAvailable } from '../lib/redis';
 
-// Initialize queue for generation
-const generationQueue = new Queue('document-generation', {
-  connection: redis,
-});
+// Initialize queue for generation (only if Redis is available)
+let generationQueue: Queue | null = null;
+if (isRedisAvailable() && redis) {
+  generationQueue = new Queue('document-generation', {
+    connection: redis,
+  });
+}
 
 const StartGenerationSchema = z.object({
   projectId: z.string().uuid(),
@@ -53,21 +56,33 @@ export const generationRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    // Queue the generation job
-    await generationQueue.add('generate-document', {
-      runId: run.id,
-      templateId: body.templateId,
-      repoSnapshotId: body.repoSnapshotId,
-      artifactIds: body.artifactIds || [],
-      userContext: body.userContext || {},
-    }, {
-      jobId: `gen-${run.id}`,
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 1000,
-      },
-    });
+    // Queue the generation job (if Redis is available)
+    if (generationQueue) {
+      await generationQueue.add('generate-document', {
+        runId: run.id,
+        templateId: body.templateId,
+        repoSnapshotId: body.repoSnapshotId,
+        artifactIds: body.artifactIds || [],
+        userContext: body.userContext || {},
+      }, {
+        jobId: `gen-${run.id}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      });
+    } else {
+      // If Redis is not available, update status to indicate it needs manual processing
+      await app.prisma.generationRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'PENDING',
+          // Note: In a production system, you'd want a worker to process this
+          // For now, we'll just mark it as pending
+        },
+      });
+    }
 
     return reply.status(202).send({
       runId: run.id,
@@ -223,13 +238,15 @@ export const generationRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Generation run not found' });
     }
 
-    // Queue block regeneration
-    await generationQueue.add('regenerate-block', {
-      runId,
-      blockId,
-    }, {
-      jobId: `regen-${runId}-${blockId}`,
-    });
+    // Queue block regeneration (if Redis is available)
+    if (generationQueue) {
+      await generationQueue.add('regenerate-block', {
+        runId,
+        blockId,
+      }, {
+        jobId: `regen-${runId}-${blockId}`,
+      });
+    }
 
     return {
       message: 'Block regeneration started',
@@ -277,8 +294,8 @@ export const generationRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    // Queue re-evaluation of affected blocks
-    if (gap.blockId) {
+    // Queue re-evaluation of affected blocks (if Redis is available)
+    if (gap.blockId && generationQueue) {
       await generationQueue.add('regenerate-block', {
         runId,
         blockId: gap.blockId,
@@ -340,10 +357,12 @@ export const generationRoutes: FastifyPluginAsync = async (app) => {
       },
     });
 
-    // Remove from queue if pending
-    const job = await generationQueue.getJob(`gen-${id}`);
-    if (job) {
-      await job.remove();
+    // Remove from queue if pending (if Redis is available)
+    if (generationQueue) {
+      const job = await generationQueue.getJob(`gen-${id}`);
+      if (job) {
+        await job.remove();
+      }
     }
 
     return { message: 'Generation run cancelled' };

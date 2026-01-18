@@ -26,6 +26,8 @@ export interface ToolContext {
   repoUrl?: string;
   codebaseFiles?: string[];
   currentSection?: string;
+  /** Data files available for chart generation - content already fetched */
+  dataFiles?: Array<{ path: string; content: string }>;
 }
 
 // Tool definitions for OpenAI
@@ -138,7 +140,8 @@ export async function executeTool(
     case 'generate_chart':
       return await executeGenerateChart(
         args.python_code as string,
-        args.description as string
+        args.description as string,
+        context.dataFiles
       );
 
     case 'execute_python_analysis':
@@ -167,7 +170,8 @@ export async function executeTool(
  */
 async function executeGenerateChart(
   pythonCode: string,
-  description: string
+  description: string,
+  dataFiles?: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>
 ): Promise<ToolResult> {
   const sandboxAvailable = await isSandboxAvailable();
   
@@ -184,17 +188,37 @@ async function executeGenerateChart(
   }
 
   try {
-    const result = await generateChart(pythonCode);
+    console.log(`[LLM Tools] Generating chart with ${pythonCode.length} chars of code`);
+    if (dataFiles && dataFiles.length > 0) {
+      console.log(`[LLM Tools] 📂 Transferring ${dataFiles.length} data files to sandbox`);
+    }
+    
+    const result = await generateChart(pythonCode, {
+      dataFiles: dataFiles,
+    });
     
     if (result.success && result.imageBase64) {
+      console.log(`[LLM Tools] ✅ Chart generated successfully! Image size: ${result.imageBase64.length} chars`);
+      
+      // Include execution outputs (stdout, stderr) so LLM can see data analysis results
+      // This allows LLM to see summary statistics, headers, etc. from the sandbox
+      const executionOutputs: any = {};
+      if (result.stdout) executionOutputs.stdout = result.stdout;
+      if (result.stderr) executionOutputs.stderr = result.stderr;
+      if (result.structuredResult) executionOutputs.structuredResult = result.structuredResult;
+      
       return {
         success: true,
-        result: { description },
+        result: { 
+          description,
+          ...executionOutputs, // Include execution outputs
+        },
         imageBase64: result.imageBase64,
         imageMimeType: result.imageMimeType,
         executedCode: pythonCode,
       };
     } else {
+      console.warn(`[LLM Tools] ⚠️ Chart generation failed:`, result.error);
       return {
         success: false,
         error: result.error || 'Chart generation failed',
@@ -202,6 +226,7 @@ async function executeGenerateChart(
       };
     }
   } catch (error) {
+    console.error(`[LLM Tools] ❌ Chart generation error:`, error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -331,12 +356,15 @@ export async function getAvailableTools(): Promise<OpenAI.Chat.Completions.ChatC
   
   if (sandboxAvailable) {
     // All tools available
+    console.log(`[LLM Tools] ✅ Sandbox available - offering ${AVAILABLE_TOOLS.length} tools:`, AVAILABLE_TOOLS.map(t => t.function.name));
     return AVAILABLE_TOOLS;
   } else {
     // Only non-sandbox tools
-    return AVAILABLE_TOOLS.filter(
+    const limitedTools = AVAILABLE_TOOLS.filter(
       tool => tool.function.name === 'create_data_table'
     );
+    console.warn(`[LLM Tools] ⚠️ Sandbox NOT available - only offering ${limitedTools.length} tools (no chart generation)`);
+    return limitedTools;
   }
 }
 

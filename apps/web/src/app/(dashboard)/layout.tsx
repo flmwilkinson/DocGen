@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
 import { Loader2 } from 'lucide-react';
@@ -13,19 +13,36 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, status } = useSession();
+  // Use cached session immediately, don't block on loading
+  const { data: session, status } = useSession({ required: false });
   const router = useRouter();
   
-  // Initialize generation notifications
+  // Initialize generation notifications (non-blocking)
   useGenerationNotifications();
 
+  // Redirect only if definitely unauthenticated (not during loading)
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // Only redirect if we're certain the user is not authenticated
+    // Don't block navigation during the initial session check
+    if (status === 'unauthenticated' && session === null) {
       router.push('/login');
     }
-  }, [status, router]);
+  }, [status, session, router]);
 
-  if (status === 'loading') {
+  // Show loading only on initial mount, not on navigation
+  const isInitialLoad = useMemo(() => {
+    if (typeof window === 'undefined') return true;
+    return !(window as any).__sessionInitialized;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__sessionInitialized = true;
+    }
+  }, []);
+
+  // Only show loading spinner on very first load
+  if (isInitialLoad && status === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-brand-orange" />
@@ -33,7 +50,8 @@ export default function DashboardLayout({
     );
   }
 
-  if (!session) {
+  // If no session after initial load, show nothing (will redirect)
+  if (!session && status === 'unauthenticated') {
     return null;
   }
 

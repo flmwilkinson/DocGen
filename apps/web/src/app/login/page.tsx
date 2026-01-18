@@ -179,7 +179,7 @@ export default function LoginPage() {
             type="button"
             onClick={handleGitHubSignIn}
             disabled={isLoading || isGitHubLoading || githubOAuthConfigured === false}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-glass-border hover:border-brand-orange/50 transition-all bg-glass-bg hover:bg-glass-bg/80 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-glass-border hover:border-brand-orange/50 transition-all bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGitHubLoading ? (
               <>

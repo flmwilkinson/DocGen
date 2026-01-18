@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { LayoutTemplate, Plus, X, FileText, Upload, Wand2, Loader2, AlertCircle, Edit3, Trash2, MoreVertical } from 'lucide-react';
 import { useTemplatesStore, flattenTemplateBlocks } from '@/store/templates';
@@ -23,6 +23,15 @@ export default function TemplatesPage() {
   const addTemplate = useTemplatesStore((state) => state.addTemplate);
   const updateTemplate = useTemplatesStore((state) => state.updateTemplate);
   const deleteTemplate = useTemplatesStore((state) => state.deleteTemplate);
+  
+  // Memoize block counts to avoid recalculating on every render
+  const templateBlockCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    templates.forEach((template) => {
+      counts.set(template.id, flattenTemplateBlocks(template).length);
+    });
+    return counts;
+  }, [templates]);
   
   // Rename dialog state
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -142,7 +151,7 @@ export default function TemplatesPage() {
   };
 
   return (
-    <div className="space-y-8 p-6 relative z-0">
+    <div className="space-y-8 p-6 relative z-0 overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -163,14 +172,14 @@ export default function TemplatesPage() {
       {/* Templates Grid - Scrollable */}
       <div className="flex-1 min-h-0 flex flex-col">
         <h2 className="text-lg font-medium mb-4 shrink-0">Available Templates</h2>
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-4">
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar overflow-x-hidden">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-4 w-full min-w-0">
           {templates.map((template) => {
-            const blocksCount = flattenTemplateBlocks(template).length;
+            const blocksCount = templateBlockCounts.get(template.id) || 0;
             return (
               <div
                 key={template.id}
-                className="glass-card cursor-pointer transition-all hover:scale-[1.02] hover:border-brand-orange/50 group relative"
+                className="glass-card cursor-pointer transition-all hover:scale-[1.02] hover:border-brand-orange/50 group relative min-w-0 overflow-hidden"
               >
                 {/* Actions Dropdown */}
                 <div className="absolute top-4 right-4 z-20">
@@ -227,7 +236,7 @@ export default function TemplatesPage() {
                 
                 <div 
                   onClick={() => handleTemplateClick(template.id)}
-                  className="flex items-start gap-4"
+                  className="flex items-start gap-4 min-w-0"
                 >
                   <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-brand-orange/10 shrink-0">
                     <LayoutTemplate className="h-6 w-6 text-brand-orange" />
@@ -252,8 +261,8 @@ export default function TemplatesPage() {
 
       {/* Create Template Dialog */}
       {showCreateDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="glass-panel w-full max-w-lg p-6 mx-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-md">
+          <div className="glass-panel relative w-full max-w-lg p-6 mx-4 shadow-2xl border border-glass-border/50 bg-gradient-to-br from-glass-bg/95 via-glass-bg/90 to-glass-bg/85 dark:from-glass-bg/95 dark:via-glass-bg/90 dark:to-brand-orange/5 light:from-white/95 light:via-white/92 light:to-white/88">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Create New Template</h2>
               <button
@@ -272,14 +281,14 @@ export default function TemplatesPage() {
                 
                 <button
                   onClick={() => setCreateMode('manual')}
-                  className="w-full p-4 rounded-lg border-2 border-glass-border hover:border-brand-orange/50 transition-all text-left"
+                  className="w-full p-4 rounded-lg border-2 border-glass-border hover:border-brand-orange/50 transition-all text-left bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-brand-orange/10">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-brand-orange/10 dark:bg-brand-orange/20">
                       <FileText className="h-6 w-6 text-brand-orange" />
                     </div>
                     <div>
-                      <p className="font-medium">Manual Builder</p>
+                      <p className="font-medium text-foreground">Manual Builder</p>
                       <p className="text-sm text-muted-foreground">
                         Create sections and blocks from scratch
                       </p>
@@ -289,14 +298,14 @@ export default function TemplatesPage() {
                 
                 <button
                   onClick={() => setCreateMode('upload')}
-                  className="w-full p-4 rounded-lg border-2 border-glass-border hover:border-brand-orange/50 transition-all text-left"
+                  className="w-full p-4 rounded-lg border-2 border-glass-border hover:border-brand-orange/50 transition-all text-left bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
-                      <Wand2 className="h-6 w-6 text-blue-400" />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10 dark:bg-blue-500/20">
+                      <Wand2 className="h-6 w-6 text-blue-400 dark:text-blue-300" />
                     </div>
                     <div>
-                      <p className="font-medium">Generate from Document</p>
+                      <p className="font-medium text-foreground">Generate from Document</p>
                       <p className="text-sm text-muted-foreground">
                         Upload a reference document to auto-generate template
                       </p>
@@ -329,12 +338,12 @@ export default function TemplatesPage() {
                       className="hidden"
                     />
                     {uploadedFile ? (
-                      <div className="flex items-center gap-3 p-3 bg-glass-bg rounded-lg">
+                      <div className="flex items-center gap-3 p-3 bg-secondary/50 dark:bg-secondary/30 rounded-lg border border-glass-border">
                         <FileText className="h-5 w-5 text-brand-orange" />
-                        <span className="text-sm flex-1 truncate">{uploadedFile.name}</span>
+                        <span className="text-sm flex-1 truncate text-foreground">{uploadedFile.name}</span>
                         <button
                           onClick={() => setUploadedFile(null)}
-                          className="p-1 hover:bg-glass-bg-light rounded"
+                          className="p-1 hover:bg-secondary/70 dark:hover:bg-secondary/50 rounded text-foreground"
                           disabled={isProcessing}
                         >
                           <X className="h-4 w-4" />
@@ -359,12 +368,12 @@ export default function TemplatesPage() {
                     
                     {/* Processing Progress */}
                     {isProcessing && (
-                      <div className="mt-4 p-4 bg-glass-bg rounded-lg">
+                      <div className="mt-4 p-4 bg-secondary/50 dark:bg-secondary/30 rounded-lg border border-glass-border">
                         <div className="flex items-center gap-3 mb-2">
                           <Loader2 className="h-4 w-4 animate-spin text-brand-orange" />
-                          <span className="text-sm font-medium">{processingMessage}</span>
+                          <span className="text-sm font-medium text-foreground">{processingMessage}</span>
                         </div>
-                        <div className="h-2 w-full rounded-full bg-glass-bg-heavy">
+                        <div className="h-2 w-full rounded-full bg-secondary/50 dark:bg-secondary/40">
                           <div
                             className="h-full rounded-full bg-brand-orange transition-all duration-300"
                             style={{ width: `${processingProgress}%` }}
@@ -422,7 +431,7 @@ export default function TemplatesPage() {
 
       {/* Rename Template Dialog */}
       {showRenameDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-md">
           <div className="glass-panel w-full max-w-md p-6 mx-4">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">Rename Template</h2>

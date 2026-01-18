@@ -96,7 +96,7 @@ async function buildServer() {
   // ===========================================
 
   app.decorate('prisma', prisma);
-  app.decorate('redis', redis);
+  app.decorate('redis', redis); // May be null if Redis is unavailable
 
   // ===========================================
   // Hooks
@@ -111,7 +111,13 @@ async function buildServer() {
 
   app.addHook('onClose', async () => {
     await prisma.$disconnect();
-    await redis.quit();
+    if (redis) {
+      try {
+        await redis.quit();
+      } catch (error) {
+        // Ignore errors on shutdown
+      }
+    }
     logger.info('Server shutting down, connections closed');
   });
 
@@ -192,7 +198,7 @@ start();
 declare module 'fastify' {
   interface FastifyInstance {
     prisma: typeof prisma;
-    redis: typeof redis;
+    redis: typeof redis | null; // May be null if Redis is unavailable
   }
 }
 

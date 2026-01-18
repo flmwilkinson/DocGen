@@ -52,7 +52,7 @@ export function CreateProjectDialog({
       if (!open) resetForm();
     }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/20 dark:bg-black/40 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 glass-panel p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
           <Dialog.Title className="flex items-center gap-3 text-lg font-semibold">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-orange/20">
@@ -220,20 +220,20 @@ function SourceOption({
       className={cn(
         'flex items-center gap-4 rounded-lg border p-4 text-left transition-all',
         selected
-          ? 'border-brand-orange bg-brand-orange/10'
-          : 'border-glass-border hover:border-brand-grey/50 hover:bg-glass-bg'
+          ? 'border-brand-orange bg-brand-orange/10 dark:bg-brand-orange/20 text-foreground'
+          : 'border-glass-border hover:border-brand-grey/50 bg-secondary/50 dark:bg-secondary/30 hover:bg-secondary/70 dark:hover:bg-secondary/50 text-foreground'
       )}
     >
       <div
         className={cn(
           'flex h-10 w-10 items-center justify-center rounded-lg',
-          selected ? 'bg-brand-orange text-white' : 'bg-glass-bg text-muted-foreground'
+          selected ? 'bg-brand-orange text-white' : 'bg-secondary/50 dark:bg-secondary/30 text-foreground'
         )}
       >
         {icon}
       </div>
       <div>
-        <p className="font-medium">{title}</p>
+        <p className="font-medium text-foreground">{title}</p>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
     </button>

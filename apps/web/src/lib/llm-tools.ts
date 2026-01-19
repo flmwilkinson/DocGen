@@ -14,8 +14,9 @@ export interface ToolResult {
   result?: unknown;
   error?: string;
   // For chart tools
-  imageBase64?: string;
+  imageBase64?: string; // First chart for backward compatibility
   imageMimeType?: string;
+  chartImages?: Array<{ base64: string; mimeType: string; filename: string }>; // All charts
   // For code execution
   executedCode?: string;
   stdout?: string;
@@ -70,10 +71,13 @@ plt.title('My Chart')`,
     function: {
       name: 'execute_python_analysis',
       description: `Execute Python code to perform data analysis or calculations. Use this when:
-- Complex calculations are needed
-- Data needs to be processed or transformed
-- Statistical analysis is required
-- You need to compute metrics or statistics
+- Computing statistics from chart data (mean, median, min, max, percentiles, std dev)
+- Extracting key facts and metrics from visualizations
+- Performing statistical analysis on datasets
+- Calculating correlation coefficients or other relationships
+- Processing or transforming data for further analysis
+
+**CRITICAL for chart blocks**: After generating charts, use this tool to extract statistics from the same data to create summary tables and write better documentation.
 
 Returns the stdout output and any structured results.`,
       parameters: {
@@ -98,7 +102,13 @@ _result = {"metric": value, "data": [...]}`,
     type: 'function',
     function: {
       name: 'create_data_table',
-      description: `Create a formatted data table. Use this when presenting structured data that benefits from tabular format.`,
+      description: `Create a formatted data table. Use this when:
+- Presenting summary statistics from chart analysis (mean, median, percentiles, etc.)
+- Showing key findings in tabular format
+- Creating summary tables that complement visualizations
+- Displaying structured data that benefits from tabular format
+
+**For chart blocks**: After generating charts and computing statistics, create summary tables to document key findings.`,
       parameters: {
         type: 'object',
         properties: {
@@ -198,7 +208,8 @@ async function executeGenerateChart(
     });
     
     if (result.success && result.imageBase64) {
-      console.log(`[LLM Tools] ✅ Chart generated successfully! Image size: ${result.imageBase64.length} chars`);
+      const chartCount = result.chartImages?.length || 1;
+      console.log(`[LLM Tools] ✅ Chart generated successfully! ${chartCount} chart(s), Image size: ${result.imageBase64.length} chars`);
       
       // Include execution outputs (stdout, stderr) so LLM can see data analysis results
       // This allows LLM to see summary statistics, headers, etc. from the sandbox
@@ -206,6 +217,7 @@ async function executeGenerateChart(
       if (result.stdout) executionOutputs.stdout = result.stdout;
       if (result.stderr) executionOutputs.stderr = result.stderr;
       if (result.structuredResult) executionOutputs.structuredResult = result.structuredResult;
+      if (chartCount > 1) executionOutputs.chartCount = chartCount;
       
       return {
         success: true,
@@ -213,8 +225,9 @@ async function executeGenerateChart(
           description,
           ...executionOutputs, // Include execution outputs
         },
-        imageBase64: result.imageBase64,
+        imageBase64: result.imageBase64, // First chart for backward compatibility
         imageMimeType: result.imageMimeType,
+        chartImages: result.chartImages, // All charts
         executedCode: pythonCode,
       };
     } else {
@@ -305,6 +318,7 @@ export function formatToolResultForDocument(
 ): {
   content: string;
   generatedImage?: { base64: string; mimeType: string };
+  generatedImages?: Array<{ base64: string; mimeType: string; filename?: string; description?: string }>;
   executedCode?: string;
 } {
   if (!result.success) {
@@ -315,11 +329,20 @@ export function formatToolResultForDocument(
 
   switch (toolName) {
     case 'generate_chart':
+      // Support multiple charts - return first for backward compatibility, but also include all
+      const chartImages = result.chartImages || (result.imageBase64 ? [{
+        base64: result.imageBase64,
+        mimeType: result.imageMimeType || 'image/png',
+        filename: 'chart.png',
+      }] : []);
+      
       return {
-        content: (result.result as { description?: string })?.description || 'Chart generated.',
-        generatedImage: result.imageBase64
-          ? { base64: result.imageBase64, mimeType: result.imageMimeType || 'image/png' }
+        content: (result.result as { description?: string })?.description || 
+                (chartImages.length > 1 ? `${chartImages.length} charts generated.` : 'Chart generated.'),
+        generatedImage: chartImages.length > 0
+          ? { base64: chartImages[0].base64, mimeType: chartImages[0].mimeType }
           : undefined,
+        generatedImages: chartImages, // All charts
         executedCode: result.executedCode,
       };
 

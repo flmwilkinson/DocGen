@@ -84,7 +84,8 @@ export interface AgentResult {
   confidence: number;
   searchIterations: number;
   verificationPassed: boolean;
-  generatedImage?: { base64: string; mimeType: string };
+  generatedImage?: { base64: string; mimeType: string }; // Backward compatibility
+  generatedImages?: Array<{ base64: string; mimeType: string; description?: string }>; // Multiple charts
   executedCode?: string;
 }
 
@@ -231,7 +232,7 @@ async function draft(
   sectionInstructions: string,
   observation: string,
   availableCitations: string[]
-): Promise<DraftResult & { generatedImage?: { base64: string; mimeType: string }; executedCode?: string }> {
+): Promise<DraftResult & { generatedImage?: { base64: string; mimeType: string }; generatedImages?: Array<{ base64: string; mimeType: string; description?: string }>; executedCode?: string }> {
   // Get available tools
   const tools = await getAvailableTools();
   const hasChartTool = tools.some(t => t.function.name === 'generate_chart');
@@ -337,6 +338,7 @@ If the code doesn't contain what's needed for this section, adapt the section to
   // Track tool outputs
   let content = '';
   let generatedImage: { base64: string; mimeType: string } | undefined;
+  let generatedImages: Array<{ base64: string; mimeType: string; description?: string }> | undefined;
   let executedCode: string | undefined;
 
   // Initial API call with tools
@@ -386,9 +388,23 @@ If the code doesn't contain what's needed for this section, adapt the section to
         // Format tool result for document
         const formattedResult = formatToolResultForDocument(toolName, toolResult);
 
-        // Store chart image if generated
-        if (toolName === 'generate_chart' && formattedResult.generatedImage) {
-          generatedImage = formattedResult.generatedImage;
+        // Store chart images if generated (support multiple charts)
+        if (toolName === 'generate_chart') {
+          if (formattedResult.generatedImages && formattedResult.generatedImages.length > 0) {
+            generatedImages = formattedResult.generatedImages.map(img => ({
+              base64: img.base64,
+              mimeType: img.mimeType,
+              description: img.description,
+            }));
+            // Also set first image for backward compatibility
+            generatedImage = {
+              base64: generatedImages[0].base64,
+              mimeType: generatedImages[0].mimeType,
+            };
+          } else if (formattedResult.generatedImage) {
+            generatedImage = formattedResult.generatedImage;
+            generatedImages = [formattedResult.generatedImage];
+          }
           executedCode = formattedResult.executedCode;
         }
 
@@ -408,6 +424,16 @@ If the code doesn't contain what's needed for this section, adapt the section to
       }
     }
 
+    // Truncate messages if they're getting too long (prevent context overflow)
+    // Keep system message, last user message, and recent tool results
+    if (messages.length > 20) {
+      const systemMsg = messages[0];
+      const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+      const recentMessages = messages.slice(-10); // Keep last 10 messages
+      messages = [systemMsg, ...(lastUserMsg ? [lastUserMsg] : []), ...recentMessages];
+      console.log(`[ReAct Agent] Truncated messages from ${messages.length + 10} to ${messages.length} to prevent context overflow`);
+    }
+    
     // Continue conversation with tool results
     response = await ctx.openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -434,7 +460,8 @@ If the code doesn't contain what's needed for this section, adapt the section to
     content,
     citations: [...new Set(citations)],
     confidence: 0.8,
-    generatedImage,
+    generatedImage, // Backward compatibility
+    generatedImages, // Multiple charts
     executedCode,
   };
 }
@@ -604,7 +631,8 @@ export async function generateWithAgent(
         confidence: draftResult.confidence,
         searchIterations: iterations,
         verificationPassed: true,
-        generatedImage: draftResult.generatedImage,
+        generatedImage: draftResult.generatedImage, // Backward compatibility
+        generatedImages: draftResult.generatedImages, // Multiple charts
         executedCode: draftResult.executedCode,
       };
     }
@@ -639,7 +667,8 @@ export async function generateWithAgent(
       confidence: bestDraft.confidence * 0.8, // Lower confidence for unverified
       searchIterations: iterations,
       verificationPassed: false,
-      generatedImage: bestDraft.generatedImage,
+      generatedImage: bestDraft.generatedImage, // Backward compatibility
+      generatedImages: bestDraft.generatedImages, // Multiple charts
       executedCode: bestDraft.executedCode,
     };
   }

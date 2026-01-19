@@ -67,7 +67,12 @@ export interface GeneratedBlock {
   generatedImage?: {
     base64: string;
     mimeType: string;
-  };
+  }; // Backward compatibility - last chart
+  generatedImages?: Array<{
+    base64: string;
+    mimeType: string;
+    description?: string;
+  }>; // New: array of all charts
   executedCode?: string; // The Python code that was run
 }
 

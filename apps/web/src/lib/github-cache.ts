@@ -252,6 +252,48 @@ async function storeCodeIntelligenceInIndexedDB(
 }
 
 /**
+ * Get cached schema audits from IndexedDB
+ */
+export async function getCachedSchemaAudits(
+  repoUrl: string,
+  commitHash: string | null
+): Promise<Record<string, any> | null> {
+  if (!repoUrl || !commitHash) {
+    return null;
+  }
+  try {
+    const cached = await idbGet<Record<string, any>>(
+      repoUrl,
+      commitHash,
+      'schema-audits'
+    );
+    return cached || null;
+  } catch (error) {
+    console.warn('[GitHub Cache] Failed to get cached schema audits:', error);
+    return null;
+  }
+}
+
+/**
+ * Store schema audits in IndexedDB
+ */
+export async function storeSchemaAuditsInIndexedDB(
+  repoUrl: string,
+  commitHash: string | null,
+  schemaAudits: Record<string, any>
+): Promise<void> {
+  if (!repoUrl || !commitHash) {
+    return;
+  }
+  try {
+    await idbSet(repoUrl, commitHash, 'schema-audits', schemaAudits);
+    console.log(`[GitHub Cache] Stored ${Object.keys(schemaAudits).length} schema audits in IndexedDB`);
+  } catch (error) {
+    console.warn('[GitHub Cache] Failed to store schema audits in IndexedDB:', error);
+  }
+}
+
+/**
  * Build or retrieve cached knowledge base
  * @param forceRefresh - If true, bypasses cache and fetches fresh data
  */

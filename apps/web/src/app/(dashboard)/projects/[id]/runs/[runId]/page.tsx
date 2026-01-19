@@ -1654,19 +1654,24 @@ export default function DocumentEditorPage() {
                           </ReactMarkdown>
                         </div>
                         
-                        {/* Generated Chart Image */}
-                        {block.generatedImage && (
-                          <div className="mt-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
+                        {/* Generated Chart Images - Support Multiple Charts */}
+                        {(block.generatedImages && block.generatedImages.length > 0 ? block.generatedImages : 
+                          block.generatedImage ? [block.generatedImage] : []).map((chart, idx) => (
+                          <div key={idx} className="mt-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
                             <div className="flex items-center gap-2 mb-3">
                               <BarChart3 className="h-4 w-4 text-brand-orange" />
-                              <span className="text-sm font-medium">Generated Chart</span>
+                              <span className="text-sm font-medium">
+                                {block.generatedImages && block.generatedImages.length > 1 
+                                  ? `Generated Chart ${idx + 1}${chart.description ? `: ${chart.description}` : ''}`
+                                  : 'Generated Chart'}
+                              </span>
                             </div>
                             <img
-                              src={`data:${block.generatedImage.mimeType};base64,${block.generatedImage.base64}`}
-                              alt={`Chart: ${block.title}`}
+                              src={`data:${chart.mimeType};base64,${chart.base64}`}
+                              alt={`Chart ${idx + 1}: ${block.title}${chart.description ? ` - ${chart.description}` : ''}`}
                               className="max-w-full rounded-lg border border-glass-border/50"
                             />
-                            {block.executedCode && (
+                            {idx === 0 && block.executedCode && (
                               <details className="mt-3">
                                 <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
                                   View Python code
@@ -1677,7 +1682,7 @@ export default function DocumentEditorPage() {
                               </details>
                             )}
                           </div>
-                        )}
+                        ))}
                         
                         {/* Citations - with proper spacing */}
                         {block.citations && block.citations.length > 0 && (

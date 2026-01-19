@@ -124,6 +124,8 @@ export interface GenerationContext {
   onThinking?: OnThinkingCallback;
   // OPTIMIZATION: Pre-processed data files (global, not per-section)
   globalDataFiles?: Array<{ path: string; content: string }>;
+  // OPTIMIZATION: Pre-computed schema audits (run once at document level)
+  globalDataEvidence?: Array<any>;
 }
 
 // Re-export for use in other files
@@ -152,7 +154,12 @@ export interface GeneratedBlock {
   generatedImage?: {
     base64: string;
     mimeType: string;
-  };
+  }; // Backward compatibility - last chart
+  generatedImages?: Array<{
+    base64: string;
+    mimeType: string;
+    description?: string;
+  }>; // New: array of all charts
   executedCode?: string;
 }
 
@@ -1121,6 +1128,9 @@ async function generateBlock(
   if (context.useEvidenceFirst && context.codeIntelligence && context.codebase) {
     console.log(`[OpenAI] Using EVIDENCE-FIRST agent for: ${block.title} (${block.type})`);
     
+    // Get commit hash from context (set during knowledge base fetch)
+    const commitHash = (context as any).commitHash || null;
+    
     const evidenceCtx: EvidenceAgentContext = {
       openai,
       codeIntelligence: context.codeIntelligence,
@@ -1129,6 +1139,12 @@ async function generateBlock(
       config: context.evidenceConfig || DEFAULT_EVIDENCE_CONFIG,
       repoUrl: context.repoUrl, // Pass repo URL for data file access via code execution
       nodeSummaries: context.nodeSummaries,
+      schemaAuditCache: context.projectCache ? {
+        schemaAudits: context.projectCache.schemaAudits || {},
+        commitHash,
+        updateCache: (updates) => context.projectCache?.updateCache?.(updates),
+      } : undefined,
+      globalDataEvidence: context.globalDataEvidence, // Pass pre-computed schema audits
       blockType: block.type, // Pass block type for tool selection
       onThinking: context.onThinking, // Pass thinking callback for UI display
     };
@@ -1159,7 +1175,7 @@ async function generateBlock(
         }
       }
 
-      return {
+      const generatedBlock = {
         id: block.id,
         type: block.type as 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART',
         title: block.title,
@@ -1168,12 +1184,19 @@ async function generateBlock(
         citations: evidenceResult.citations,
         ragSources: evidenceResult.ragSources || [],
         dataEvidence: evidenceResult.dataEvidence || [],
-        generatedImage: evidenceResult.generatedImage,
+        generatedImage: evidenceResult.generatedImage, // Backward compatibility
+        generatedImages: evidenceResult.generatedImages, // New: multiple charts
         executedCode: evidenceResult.executedCode,
         // Store evidence bundle for gap detection
         evidenceBundle: evidenceResult.evidenceBundle,
         qualityMetrics: evidenceResult.qualityMetrics,
       } as GeneratedBlock & { evidenceBundle?: EvidenceBundle; qualityMetrics?: QualityMetrics };
+      
+      if (evidenceResult.generatedImages && evidenceResult.generatedImages.length > 0) {
+        console.log(`[OpenAI] Block "${block.title}" has ${evidenceResult.generatedImages.length} chart(s)`);
+      }
+      
+      return generatedBlock;
     } catch (error) {
       console.error(`[OpenAI] ❌ Evidence agent failed for "${block.title}", falling back to ReAct agent:`, error);
       context.onThinking?.({
@@ -1223,7 +1246,8 @@ async function generateBlock(
         content: agentResult.content,
         confidence: agentResult.confidence,
         citations: agentResult.citations,
-        generatedImage: agentResult.generatedImage,
+        generatedImage: agentResult.generatedImage, // Backward compatibility
+        generatedImages: agentResult.generatedImages, // Multiple charts
         executedCode: agentResult.executedCode,
       };
     } catch (error) {
@@ -1415,6 +1439,7 @@ Analyze the code, understand what this system is, adapt the section topic approp
     // Track accumulated content and tool outputs
     let content = '';
     let generatedImage: { base64: string; mimeType: string } | undefined;
+    let generatedImages: Array<{ base64: string; mimeType: string; description?: string }> | undefined;
     let executedCode: string | undefined;
     
     // Initial API call with tools
@@ -1466,9 +1491,21 @@ Analyze the code, understand what this system is, adapt the section topic approp
         const toolResult = await executeTool(toolName, toolArgs, toolContext);
         const formattedResult = formatToolResultForDocument(toolName, toolResult);
         
-        // Capture generated images and code
-        if (formattedResult.generatedImage) {
+        // Capture generated images and code (support multiple charts)
+        if (formattedResult.generatedImages && formattedResult.generatedImages.length > 0) {
+          generatedImages = formattedResult.generatedImages.map(img => ({
+            base64: img.base64,
+            mimeType: img.mimeType,
+            description: img.description,
+          }));
+          // Also set first image for backward compatibility
+          generatedImage = {
+            base64: generatedImages[0].base64,
+            mimeType: generatedImages[0].mimeType,
+          };
+        } else if (formattedResult.generatedImage) {
           generatedImage = formattedResult.generatedImage;
+          generatedImages = [formattedResult.generatedImage];
         }
         if (formattedResult.executedCode) {
           executedCode = formattedResult.executedCode;
@@ -1628,7 +1665,8 @@ Analyze the code, understand what this system is, adapt the section topic approp
       content,
       confidence,
       citations: finalCitations,
-      generatedImage,
+      generatedImage, // Backward compatibility
+      generatedImages, // Multiple charts
       executedCode,
     };
   } catch (error) {
@@ -2160,8 +2198,9 @@ export async function generateDocument(
     lastCommitHash?: string;
     cachedKnowledgeBase?: any;
     cachedCodeIntelligence?: any;
+    schemaAudits?: Record<string, any>;
     githubToken?: string | null;
-    updateCache?: (updates: { lastCommitHash?: string; cachedKnowledgeBase?: any; cachedCodeIntelligence?: any }) => void;
+    updateCache?: (updates: { lastCommitHash?: string; cachedKnowledgeBase?: any; cachedCodeIntelligence?: any; schemaAudits?: Record<string, any> }) => void;
   }
 ): Promise<GenerationResult> {
   console.log('[DocGen] Starting document generation for:', context.projectName);
@@ -2186,6 +2225,9 @@ export async function generateDocument(
           false, // Don't force refresh
           projectCache?.githubToken || null
         );
+        
+        // Store commit hash in context for schema audit caching
+        (context as any).commitHash = commitHash;
         
         // Attach to context
         context.codebase = knowledgeBase;
@@ -2279,10 +2321,72 @@ export async function generateDocument(
           onProgress?.(49, 'Evidence-first agent enabled');
         }
         
+        // OPTIMIZATION: Run schema audits ONCE at document level (like knowledge graph)
+        // This avoids running audits multiple times per section
+        let globalDataEvidence: any[] = [];
+        if (context.useEvidenceFirst && context.codeIntelligence && context.evidenceConfig?.runDataSchemaAudit) {
+          onProgress?.(49.5, 'Running data schema audits...');
+          
+          const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
+          const dataFiles = knowledgeBase.files
+            .filter((f: { path: string }) => {
+              const { category } = classifySource(f.path);
+              return category === 'dataset';
+            })
+            .map((f: { path: string }) => ({ path: f.path, repoUrl: context.repoUrl }));
+          
+          if (dataFiles.length > 0) {
+            // Check IndexedDB cache first (with commit hash)
+            const { getCachedSchemaAudits, storeSchemaAuditsInIndexedDB } = await import('./github-cache');
+            const cachedAudits = commitHash 
+              ? await getCachedSchemaAudits(context.repoUrl, commitHash)
+              : null;
+            
+            if (cachedAudits && Object.keys(cachedAudits).length > 0) {
+              console.log(`[DocGen] Using ${Object.keys(cachedAudits).length} cached schema audits from IndexedDB`);
+              globalDataEvidence = Object.values(cachedAudits);
+              onProgress?.(49.7, `Using cached schema audits (${globalDataEvidence.length} files)`);
+            } else {
+              // Run audits and cache results
+              const { runDataSchemaAudit } = await import('./evidence-first');
+              globalDataEvidence = await runDataSchemaAudit(
+                dataFiles,
+                context.evidenceConfig || DEFAULT_EVIDENCE_CONFIG,
+                {
+                  schemaAudits: projectCache?.schemaAudits || {},
+                  commitHash,
+                  updateCache: (updates) => {
+                    projectCache?.updateCache?.(updates);
+                    // Also store in IndexedDB
+                    if (commitHash && updates.schemaAudits) {
+                      storeSchemaAuditsInIndexedDB(context.repoUrl, commitHash, updates.schemaAudits);
+                    }
+                  },
+                }
+              );
+              
+              // Store in IndexedDB
+              if (commitHash && globalDataEvidence.length > 0) {
+                const auditsMap: Record<string, any> = {};
+                globalDataEvidence.forEach(audit => {
+                  auditsMap[audit.filePath] = audit;
+                });
+                await storeSchemaAuditsInIndexedDB(context.repoUrl, commitHash, auditsMap);
+              }
+              
+              console.log(`[DocGen] Completed ${globalDataEvidence.length} schema audits`);
+              onProgress?.(49.7, `Completed ${globalDataEvidence.length} schema audits`);
+            }
+          }
+        }
+        
+        // Store globally for reuse across sections
+        context.globalDataEvidence = globalDataEvidence;
+        
         // OPTIMIZATION: Pre-process data files globally (not per-section)
-        // This avoids redundant filtering and schema audits
+        // This avoids redundant filtering
         if (context.useEvidenceFirst && context.codeIntelligence) {
-          onProgress?.(49.5, 'Pre-processing data files...');
+          const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
           const dataFiles = knowledgeBase.files
             .filter((f: { path: string }) => {
               const { category } = classifySource(f.path);

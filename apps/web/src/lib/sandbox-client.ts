@@ -24,8 +24,9 @@ export interface GeneratedFile {
 
 export interface ChartResult {
   success: boolean;
-  imageBase64?: string;
+  imageBase64?: string; // First chart for backward compatibility
   imageMimeType?: string;
+  chartImages?: Array<{ base64: string; mimeType: string; filename: string }>; // All charts
   error?: string;
   executionTimeMs: number;
   code: string;
@@ -278,10 +279,15 @@ plt.rcParams['grid.color'] = '#0f3460'
 # User code starts here
 ${code}
 
-# Ensure figure is saved
+# Ensure all figures are saved (support multiple charts)
 if plt.get_fignums():
-    plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, 'chart.png'), dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
+    fig_nums = plt.get_fignums()
+    for i, fig_num in enumerate(fig_nums):
+        fig = plt.figure(fig_num)
+        fig.tight_layout()
+        # Save each figure with a unique name
+        chart_filename = f'chart_{i}.png' if len(fig_nums) > 1 else 'chart.png'
+        fig.savefig(os.path.join(OUTPUT_DIR, chart_filename), dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
     plt.close('all')
 `;
 
@@ -302,9 +308,13 @@ if plt.get_fignums():
     }
     
     // Find ALL chart images (support multiple charts)
+    // Sandbox saves as: chart.png, chart_0.png, chart_1.png, or figure_0.png, figure_1.png
     const chartFiles = result.generatedFiles.filter(
-      f => f.filename === 'chart.png' || f.mimeType.startsWith('image/')
-    );
+      f => f.filename.startsWith('chart') || f.filename.startsWith('figure_') || f.mimeType.startsWith('image/')
+    ).sort((a, b) => {
+      // Sort by filename to ensure consistent order
+      return a.filename.localeCompare(b.filename);
+    });
     
     if (chartFiles.length === 0) {
       return {
@@ -318,28 +328,35 @@ if plt.get_fignums():
       };
     }
     
-    // For now, return the first chart (we can extend to support multiple later)
-    // But include all execution outputs so LLM can see data analysis results
-    const chartFile = chartFiles[0];
-    
     // Extract execution ID from path (use different variable name to avoid shadowing)
-    const pathParts = chartFile.path.split('/');
+    const pathParts = chartFiles[0].path.split('/');
     const fileExecutionId = pathParts[pathParts.length - 2];
     
-    // Download the image as base64
-    const base64Data = await downloadFileAsBase64(fileExecutionId, chartFile.filename);
+    // Download all chart images as base64
+    const chartImages = await Promise.all(
+      chartFiles.map(async (chartFile) => {
+        const base64Data = await downloadFileAsBase64(fileExecutionId, chartFile.filename);
+        return {
+          base64: base64Data,
+          mimeType: chartFile.mimeType,
+          filename: chartFile.filename,
+        };
+      })
+    );
     
+    console.log(`[Sandbox] Generated ${chartImages.length} chart(s): ${chartFiles.map(f => f.filename).join(', ')}`);
+    
+    // Return first chart for backward compatibility, but also include all charts
     return {
       success: true,
-      imageBase64: base64Data,
-      imageMimeType: chartFile.mimeType,
+      imageBase64: chartImages[0].base64, // First chart for backward compatibility
+      imageMimeType: chartImages[0].mimeType,
+      chartImages: chartImages, // All charts
       executionTimeMs: Date.now() - startTime,
       code,
       stdout: result.stdout, // Include stdout (summary stats, headers, etc.)
       stderr: result.stderr, // Include stderr (warnings, etc.)
       structuredResult: result.structuredResult, // Include structured results (schema info, etc.)
-      // Note: chartFiles.length > 1 indicates multiple charts were generated
-      // We can extend this later to return an array of images
     };
   } catch (error) {
     return {

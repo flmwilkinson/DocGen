@@ -274,7 +274,12 @@ except Exception as e:
  */
 export async function runDataSchemaAudit(
   dataFiles: Array<{ path: string; repoUrl?: string }>, // Only need path, not content
-  config: EvidenceFirstConfig = DEFAULT_CONFIG
+  config: EvidenceFirstConfig = DEFAULT_CONFIG,
+  cache?: {
+    schemaAudits?: Record<string, DataSchemaEvidence>;
+    commitHash?: string | null;
+    updateCache?: (updates: { schemaAudits?: Record<string, DataSchemaEvidence> }) => void;
+  }
 ): Promise<DataSchemaEvidence[]> {
   const results: DataSchemaEvidence[] = [];
   
@@ -285,12 +290,32 @@ export async function runDataSchemaAudit(
     return results;
   }
   
+  // Try to load from IndexedDB first (if commit hash provided)
+  let cachedAudits: Record<string, DataSchemaEvidence> = {};
+  if (cache?.commitHash && cache?.schemaAudits) {
+    // Use provided cache (from IndexedDB or project cache)
+    cachedAudits = cache.schemaAudits;
+    console.log(`[Evidence] Using ${Object.keys(cachedAudits).length} cached schema audits`);
+  } else if (cache?.schemaAudits) {
+    // Fallback to project cache
+    cachedAudits = cache.schemaAudits;
+  }
+  
+  const newAudits: Record<string, DataSchemaEvidence> = {};
+  
   // Process ALL data files (no limits)
   for (const file of dataFiles) {
     const ext = file.path.split('.').pop()?.toLowerCase() || '';
     
     // Support CSV, Parquet, Excel files
     if (!['csv', 'tsv', 'parquet', 'xlsx', 'xls'].includes(ext)) {
+      continue;
+    }
+    
+    // Check cache first
+    if (cachedAudits[file.path]) {
+      console.log(`[Evidence] Using cached schema audit for ${file.path}`);
+      results.push(cachedAudits[file.path]);
       continue;
     }
     
@@ -328,13 +353,16 @@ export async function runDataSchemaAudit(
           continue;
         }
         
-        results.push({
+        const auditResult: DataSchemaEvidence = {
           filePath: file.path,
           columns: schema.columns,
           rowCount: schema.rowCount || 0,
           sampleRows: schema.sampleRows || [],
           executionLog: result.stdout,
-        });
+        };
+        
+        results.push(auditResult);
+        newAudits[file.path] = auditResult; // Store for cache
         
         console.log(`[Evidence] Schema audit complete: ${schema.columns.length} columns, ${schema.rowCount || 0} rows`);
       } else {
@@ -343,6 +371,13 @@ export async function runDataSchemaAudit(
     } catch (error) {
       console.error(`[Evidence] Schema audit error for ${file.path}:`, error);
     }
+  }
+  
+  // Update cache with new audit results
+  if (Object.keys(newAudits).length > 0 && cache?.updateCache) {
+    const updatedCache = { ...cachedAudits, ...newAudits };
+    cache.updateCache({ schemaAudits: updatedCache });
+    console.log(`[Evidence] Cached ${Object.keys(newAudits).length} new schema audit(s)`);
   }
   
   return results;
@@ -595,7 +630,13 @@ export async function retrieveEvidence(
   openai: OpenAI,
   config: EvidenceFirstConfig = DEFAULT_CONFIG,
   repoUrl?: string, // Optional repo URL for data file access
-  nodeSummaryCache?: Record<string, string>
+  nodeSummaryCache?: Record<string, string>,
+  schemaAuditCache?: {
+    schemaAudits?: Record<string, DataSchemaEvidence>;
+    commitHash?: string | null;
+    updateCache?: (updates: { schemaAudits?: Record<string, DataSchemaEvidence> }) => void;
+  },
+  globalDataEvidence?: DataSchemaEvidence[] // Pre-computed schema audits (run once at document level)
 ): Promise<EvidenceBundle> {
   console.log(`[Evidence] Retrieving evidence for: ${sectionTitle}`);
   
@@ -672,14 +713,18 @@ export async function retrieveEvidence(
     }
   }
   
-  // Run data schema audit if datasets found (NO LIMITS - process all data files)
+  // Use global data evidence if provided (schema audits run once at document level)
+  // Otherwise, run schema audit only if not already done globally
   const dataFiles = allFiles.filter(f => classifySource(f.path).category === 'dataset');
-  const dataEvidence = config.runDataSchemaAudit && dataFiles.length > 0
-    ? await runDataSchemaAudit(
-        dataFiles.map(f => ({ path: f.path, repoUrl })), // Pass paths only, not content
-        config
-      )
-    : [];
+  const dataEvidence = globalDataEvidence && globalDataEvidence.length > 0
+    ? globalDataEvidence // Use pre-computed audits from document level
+    : (config.runDataSchemaAudit && dataFiles.length > 0 && !globalDataEvidence
+      ? await runDataSchemaAudit(
+          dataFiles.map(f => ({ path: f.path, repoUrl })), // Pass paths only, not content
+          config,
+          schemaAuditCache // Pass cache for schema audits
+        )
+      : []);
   
   const executedValidations = dataEvidence.map(d => `schema_audit:${d.filePath}`);
   

@@ -63,6 +63,12 @@ export interface EvidenceAgentContext {
   config: EvidenceFirstConfig;
   repoUrl?: string; // Optional repo URL for data file access via code execution
   nodeSummaries?: Record<string, string>;
+  schemaAuditCache?: {
+    schemaAudits?: Record<string, any>;
+    commitHash?: string | null;
+    updateCache?: (updates: { schemaAudits?: Record<string, any> }) => void;
+  };
+  globalDataEvidence?: Array<any>; // Pre-computed schema audits (run once at document level)
   blockType?: 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART'; // Block type for tool selection
   onThinking?: OnThinkingCallback; // Callback to emit thinking steps
 }
@@ -271,7 +277,15 @@ function buildEvidenceUserPrompt(
     blockTypeInstructions = `
 ## ⚠️ CRITICAL: CHART GENERATION REQUIRED ⚠️
 
-You MUST call the generate_chart tool. This is NOT optional.
+**YOU MUST GENERATE VISUAL CHARTS, NOT TABLES**
+
+For chart blocks, you MUST:
+1. **PREFER VISUALS OVER TABLES** - Generate charts/graphs using the generate_chart tool
+2. **DO NOT create tables** - Use create_data_table only if absolutely necessary for small summary data
+3. **Generate MULTIPLE charts if needed** - You can call generate_chart multiple times to create different visualizations
+4. **Focus on visualizations** - Histograms, line plots, scatter plots, bar charts, etc.
+
+**You MUST call the generate_chart tool. This is NOT optional.**
 
 **HOW TO LOAD DATA:**
 Data files are automatically transferred to the sandbox (full files fetched from GitHub if needed). Use the \`load_data()\` helper function:
@@ -341,11 +355,52 @@ data = pd.DataFrame({
 plt.bar(data['Category'], data['Value'])
 \`\`\`
 
+**CRITICAL: GENERATE MULTIPLE CHARTS + STATISTICAL ANALYSIS**
+
+**STEP 1: Generate Multiple Visualizations**
+- **GENERATE MULTIPLE CHARTS** - Call generate_chart MULTIPLE times to create different visualizations
+- Each chart should show a different aspect: distributions, trends, comparisons, correlations, etc.
+- Examples: histogram of one variable, box plot of another, line plot of trends, scatter plot of relationships
+- You can call generate_chart 3-5 times to create a comprehensive visual analysis
+
+**STEP 2: Extract Statistics from Chart Data**
+- After generating charts, use execute_python_analysis to compute key statistics:
+  - Mean, median, min, max, standard deviation
+  - Percentiles (25th, 50th, 75th, 90th, 95th)
+  - Distribution shape indicators
+  - Correlation coefficients if comparing variables
+- Example code:
+\`\`\`python
+df = load_data('ECL/datasets/ECLData.csv')
+stats = {
+    "mean": float(df['OUTSTANDING'].mean()),
+    "median": float(df['OUTSTANDING'].median()),
+    "min": float(df['OUTSTANDING'].min()),
+    "max": float(df['OUTSTANDING'].max()),
+    "std": float(df['OUTSTANDING'].std()),
+    "p25": float(df['OUTSTANDING'].quantile(0.25)),
+    "p75": float(df['OUTSTANDING'].quantile(0.75)),
+    "p90": float(df['OUTSTANDING'].quantile(0.90)),
+    "p95": float(df['OUTSTANDING'].quantile(0.95))
+}
+_result = stats
+\`\`\`
+
+**STEP 3: Create Summary Tables**
+- Use create_data_table to present key statistics in tabular format
+- Create tables for: summary statistics, distribution percentiles, key findings
+- Tables help document the insights from the charts
+
+**STEP 4: Write Comprehensive Narrative**
+- Describe what each chart shows
+- Reference the statistical findings from the tables
+- Explain key insights and patterns observed
+
 **IMPORTANT:**
 - Use \`load_data('path/to/file.csv')\` to load transferred files
 - The path should match paths in AVAILABLE DATA FILES above
-- If load_data fails, fall back to inline data from DATA PREVIEW
-- Always create a chart - don't just describe one`;
+- Generate MULTIPLE charts first, then analyze, then create tables, then write narrative
+- Don't stop after one chart - create a comprehensive visual and statistical analysis`;
   } else if (blockType === 'LLM_TABLE') {
     blockTypeInstructions = `
 ## TABLE FORMAT REQUIRED
@@ -456,12 +511,116 @@ export async function generateSectionWithEvidence(
   ctx: EvidenceAgentContext,
   sectionTitle: string,
   sectionInstructions: string
-): Promise<EvidenceAgentResult & { generatedImage?: { base64: string; mimeType: string }; executedCode?: string; ragSources?: any[]; dataEvidence?: any[] }> {
+): Promise<EvidenceAgentResult & { generatedImage?: { base64: string; mimeType: string }; generatedImages?: Array<{ base64: string; mimeType: string; description?: string }>; executedCode?: string; ragSources?: any[]; dataEvidence?: any[] }> {
   const blockTypeLabel = ctx.blockType === 'LLM_CHART' ? '📊 Chart' : ctx.blockType === 'LLM_TABLE' ? '📋 Table' : '📝 Text';
   console.log(`[EvidenceAgent] Starting evidence-first generation for: ${sectionTitle} (${ctx.blockType})`);
   emitThinking(ctx, 'think', `${blockTypeLabel}: "${sectionTitle}"`, ctx.blockType === 'LLM_CHART' ? 'Will generate visualization' : undefined);
   
-  // PASS 1: Evidence Collection
+  // For chart blocks, use ReAct agent workflow
+  if (ctx.blockType === 'LLM_CHART') {
+    const { generateChartWithReAct } = await import('./chart-react-agent');
+    
+    // PASS 1: Evidence Collection (still needed for data evidence)
+    console.log(`[ChartAgent] Collecting evidence for data files...`);
+    emitThinking(ctx, 'evidence', 'Collecting data evidence...', sectionInstructions.slice(0, 80));
+    
+    const evidenceBundle = await retrieveEvidence(
+      sectionTitle,
+      sectionInstructions,
+      ctx.codeIntelligence,
+      ctx.allFiles,
+      ctx.openai,
+      ctx.config,
+      ctx.repoUrl,
+      ctx.nodeSummaries,
+      ctx.schemaAuditCache,
+      ctx.globalDataEvidence // Pass pre-computed schema audits
+    );
+    
+    // Extract data files for chart agent
+    const dataFiles: Array<{ path: string; content?: string; url?: string }> = [];
+    const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
+    for (const file of ctx.allFiles) {
+      if (dataFilePatterns.test(file.path)) {
+        const isTruncated = file.content.includes('[TRUNCATED:') || 
+                           (file.content.split('\n').length <= 11 && file.content.length < 50000);
+        
+        if (isTruncated && ctx.repoUrl) {
+          const match = ctx.repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+          if (match) {
+            const [, owner, repo] = match;
+            const repoName = repo.replace(/\.git$/, '').split('/')[0];
+            dataFiles.push({
+              path: file.path,
+              url: `https://raw.githubusercontent.com/${owner}/${repoName}/main/${file.path}`,
+            });
+          }
+        } else if (file.content) {
+          dataFiles.push({
+            path: file.path,
+            content: file.content,
+          });
+        }
+      }
+    }
+    
+    // Use ReAct chart agent
+    const chartResult = await generateChartWithReAct(
+      {
+        openai: ctx.openai,
+        projectName: ctx.projectName,
+        repoUrl: ctx.repoUrl,
+        evidenceBundle,
+        allFiles: ctx.allFiles,
+        dataFiles,
+        onThinking: (step) => emitThinking(ctx, step.type as any, step.message, step.details),
+      },
+      sectionTitle,
+      sectionInstructions
+    );
+    
+    // Convert to EvidenceAgentResult format
+    const generatedImage = chartResult.generatedImages.length > 0 
+      ? chartResult.generatedImages[chartResult.generatedImages.length - 1]
+      : undefined;
+    
+    return {
+      content: chartResult.content,
+      citations: [],
+      citationDetails: [],
+      evidenceBundle,
+      claimEvidenceMap: [],
+      confidence: 0.8,
+      qualityMetrics: {
+        tier1CitationPercent: 0,
+        tier1SectionCoverage: 0,
+        executedValidationsCount: 0,
+        uncoveredSectionsCount: 0,
+        readmeOnlyCount: 0,
+        totalCitations: 0,
+        tier1Citations: 0,
+        tier2Citations: 0,
+      },
+      gaps: [],
+      generatedImage,
+      generatedImages: chartResult.generatedImages,
+      executedCode: chartResult.executedCode,
+      ragSources: [],
+      dataEvidence: evidenceBundle.dataEvidence.map(d => ({
+        filePath: d.filePath,
+        rowCount: d.rowCount,
+        columns: d.columns.map(col => ({
+          name: col.name,
+          dtype: col.dtype,
+          nullPercent: col.nullPercent,
+          min: col.min,
+          max: col.max,
+        })),
+      })),
+    };
+  }
+  
+  // PASS 1: Evidence Collection (for non-chart blocks)
   console.log(`[EvidenceAgent] PASS 1: Collecting evidence...`);
   emitThinking(ctx, 'evidence', 'Collecting Tier-1 evidence from code...', sectionInstructions.slice(0, 80));
   
@@ -473,7 +632,9 @@ export async function generateSectionWithEvidence(
     ctx.openai,
     ctx.config,
     ctx.repoUrl, // Pass repo URL for data file access
-    ctx.nodeSummaries // Reuse cached node summaries when available
+    ctx.nodeSummaries, // Reuse cached node summaries when available
+    ctx.schemaAuditCache, // Pass schema audit cache
+    ctx.globalDataEvidence // Pass pre-computed schema audits (run once at document level)
   );
   
   // Check if we have sufficient Tier-1 evidence
@@ -573,17 +734,17 @@ export async function generateSectionWithEvidence(
   
   // Track tool outputs
   let content = '';
-  let generatedImage: { base64: string; mimeType: string } | undefined;
+  let generatedImages: Array<{ base64: string; mimeType: string; description?: string }> = []; // Support multiple charts
   let executedCode: string | undefined;
   
   // Build system prompt with tool instructions if needed
   let systemPrompt = EVIDENCE_SYSTEM_PROMPT;
   if (ctx.blockType === 'LLM_CHART') {
     if (hasChartTool) {
-      systemPrompt += '\n\n## ⚠️ CRITICAL: CHART GENERATION REQUIRED ⚠️\n\nYou MUST call the generate_chart tool. This is MANDATORY for chart blocks.\n\nDO NOT write text describing a chart. DO NOT say "a chart would show...".\n\nYOU MUST call the generate_chart tool with Python matplotlib code. The tool will execute it and embed the image.';
+      systemPrompt += '\n\n## ⚠️ CRITICAL: CHART GENERATION + ANALYSIS WORKFLOW ⚠️\n\n**WORKFLOW FOR CHART BLOCKS:**\n\n1. **Generate MULTIPLE charts** (3-5 visualizations)\n   - Call generate_chart multiple times\n   - Each chart shows different aspects (distributions, trends, comparisons)\n\n2. **Extract statistics** using execute_python_analysis\n   - Compute: mean, median, min, max, std dev, percentiles\n\n3. **Create summary tables** using create_data_table\n   - Present statistics in tabular format\n   - Include tables in your final response\n\n4. **Write comprehensive narrative**\n   - Describe each chart\n   - Reference statistical findings\n   - Explain key insights\n\n**IMPORTANT:** Generate MULTIPLE charts first, then analyze, then create tables, then write narrative.';
     } else {
       console.warn(`[EvidenceAgent] Chart tool not available for ${sectionTitle} - sandbox may be down`);
-      systemPrompt += '\n\n## CHART GENERATION REQUIRED\n\nYou MUST generate Python matplotlib code in a code block. The code will be executed to create the chart.';
+      systemPrompt += '\n\n## CHART GENERATION REQUIRED\n\n**PREFER VISUALS OVER TABLES** - Generate charts/graphs, not tables.\n\nYou MUST generate Python matplotlib code in a code block. The code will be executed to create the chart.';
     }
   }
   
@@ -615,14 +776,15 @@ export async function generateSectionWithEvidence(
     { role: 'user', content: userPrompt },
   ];
   
+  // For chart blocks, allow more iterations to support multiple charts + statistical analysis
   let iterations = 0;
-  const maxIterations = 3;
+  const maxIterations = ctx.blockType === 'LLM_CHART' ? 8 : 3; // More iterations for charts to allow multiple visualizations + analysis
   
   while (response.choices[0]?.message?.tool_calls && iterations < maxIterations) {
     iterations++;
     const toolCalls = response.choices[0].message.tool_calls;
     const toolNames = toolCalls.map(tc => tc.function.name);
-    console.log(`[EvidenceAgent] Tool calls requested:`, toolNames);
+    console.log(`[EvidenceAgent] Iteration ${iterations}/${maxIterations}: Tool calls requested:`, toolNames);
     emitThinking(ctx, 'tool', `Executing: ${toolNames.join(', ')}`, undefined);
     
     // Add assistant message with tool calls
@@ -643,11 +805,33 @@ export async function generateSectionWithEvidence(
         // Format tool result for document
         const formattedResult = formatToolResultForDocument(toolName, toolResult);
         
-        // Store chart image if generated (support multiple charts - LLM can call tool multiple times)
+        // Store chart image(s) if generated (support multiple charts - LLM can call tool multiple times)
         if (toolName === 'generate_chart' && formattedResult.generatedImage) {
-          generatedImage = formattedResult.generatedImage;
+          // If this tool call generated multiple charts, add all of them
+          if (formattedResult.generatedImages && formattedResult.generatedImages.length > 1) {
+            formattedResult.generatedImages.forEach((img, idx) => {
+              generatedImages.push({
+                base64: img.base64,
+                mimeType: img.mimeType,
+                description: toolArgs.description ? `${toolArgs.description} (${idx + 1})` : `Chart ${generatedImages.length + 1}`,
+              });
+            });
+            emitThinking(ctx, 'complete', `📊 ${formattedResult.generatedImages.length} charts generated successfully!`);
+          } else {
+            // Single chart from this tool call
+            console.log(`[EvidenceAgent] 📊 Tool call generated 1 chart`);
+            // Try to extract chart title from Python code for better description
+            const codeTitle = toolArgs.python_code?.match(/plt\.(title|suptitle)\(['"]([^'"]+)['"]\)/)?.[2];
+            generatedImages.push({
+              base64: formattedResult.generatedImage.base64,
+              mimeType: formattedResult.generatedImage.mimeType,
+              description: toolArgs.description || codeTitle || `Chart ${generatedImages.length + 1}`,
+            });
+            emitThinking(ctx, 'complete', `📊 Chart ${generatedImages.length} generated successfully!`);
+          }
+          // Keep executed code from the latest chart (or we could concatenate all)
           executedCode = formattedResult.executedCode;
-          emitThinking(ctx, 'complete', '📊 Chart generated successfully!');
+          console.log(`[EvidenceAgent] Total charts collected so far: ${generatedImages.length}`);
         }
         
         // Include sandbox execution outputs in the context for the LLM
@@ -684,44 +868,120 @@ export async function generateSectionWithEvidence(
       }
     }
     
-    // If we have a chart image already, we can skip the second API call to save tokens
-    // Just use a simple completion to get the narrative text
-    if (generatedImage && ctx.blockType === 'LLM_CHART') {
-      console.log(`[EvidenceAgent] Chart image already generated, using minimal completion for narrative`);
-      // Use a much shorter prompt for the narrative
-      const narrativePrompt = `Write a brief narrative (2-3 sentences) describing the chart that was just generated for "${sectionTitle}". 
-The chart has been successfully created. Just describe what it shows.`;
-      
-      response = await ctx.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a documentation assistant. Write concise descriptions of data visualizations.' },
-          { role: 'user', content: narrativePrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 300, // Much shorter for chart descriptions
-      });
-    } else {
-      // For non-chart blocks or when no image yet, continue with full conversation
-      // But truncate messages if they're too long
-      const truncatedMessages = truncateMessagesForContext(messages, systemPrompt);
-      
-      response = await ctx.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: truncatedMessages,
-        temperature: 0.3,
-        max_tokens: 2000,
-        tools: tools.length > 0 ? tools : undefined,
-        tool_choice: 'auto',
-      });
+    // Continue the conversation - DON'T break early for chart blocks
+    // Allow LLM to generate multiple charts, then analyze data, then create tables, then write narrative
+    const truncatedMessages = truncateMessagesForContext(messages, systemPrompt);
+    
+    // For chart blocks, encourage continued tool usage if we haven't reached max iterations
+    let nextToolChoice: 'auto' | { type: 'function'; function: { name: string } } | undefined = 'auto';
+    if (ctx.blockType === 'LLM_CHART' && iterations < maxIterations - 1) {
+      // If we have charts but no analysis yet, encourage analysis
+      if (generatedImages.length > 0 && !content.includes('execute_python_analysis')) {
+        // Don't force, but allow auto to continue
+        nextToolChoice = 'auto';
+      }
     }
+    
+    response = await ctx.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: truncatedMessages,
+      temperature: 0.3,
+      max_tokens: 2000,
+      tools: tools.length > 0 ? tools : undefined,
+      tool_choice: nextToolChoice,
+    });
   }
   
   // Get final content
   content = response.choices[0]?.message?.content || '';
   
-  // For chart blocks, if no image was generated via tools, try to extract Python code from content
-  if (ctx.blockType === 'LLM_CHART' && !generatedImage && content) {
+  // Extract base64 images from markdown content and add to generatedImages
+  if (ctx.blockType === 'LLM_CHART' && content) {
+    const imageRegex = /!\[([^\]]*)\]\(data:image\/([^;]+);base64,([^)]+)\)/g;
+    let match;
+    const extractedImages: Array<{ base64: string; mimeType: string; description: string }> = [];
+    while ((match = imageRegex.exec(content)) !== null) {
+      const [, alt, mimeType, base64] = match;
+      extractedImages.push({
+        base64,
+        mimeType: `image/${mimeType}`,
+        description: alt || `Chart from markdown`,
+      });
+      console.log(`[EvidenceAgent] Extracted chart from markdown: ${alt || 'unnamed'}`);
+    }
+    
+    // Add extracted images to generatedImages array
+    if (extractedImages.length > 0) {
+      generatedImages.push(...extractedImages);
+      console.log(`[EvidenceAgent] Added ${extractedImages.length} chart(s) from markdown content`);
+      
+      // Remove image markdown from content (images will be displayed separately in UI)
+      content = content.replace(/!\[([^\]]*)\]\(data:image\/[^)]+\)/g, '');
+    }
+  }
+  
+  // For chart blocks, if we have charts but no narrative yet, generate one based on charts + any tables created
+  if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100)) {
+    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated but narrative is minimal, creating comprehensive description`);
+    
+    // Build context about what charts were actually generated
+    const chartDescriptions = generatedImages.map((img, idx) => 
+      `Chart ${idx + 1}: ${img.description || 'Data visualization'}`
+    ).join('\n');
+    
+    // Include executed code context if available
+    const codeContext = executedCode ? `\n\nThe Python code that generated the chart(s):\n\`\`\`python\n${executedCode.slice(0, 800)}\n\`\`\`` : '';
+    
+    // Check if we have any statistical analysis results in the messages
+    let statsContext = '';
+    for (const msg of messages) {
+      if (msg.role === 'tool' && typeof msg.content === 'string') {
+        try {
+          const toolResult = JSON.parse(msg.content);
+          if (toolResult.result?.structuredResult) {
+            statsContext += `\n\n**Statistical Analysis Results:**\n\`\`\`json\n${JSON.stringify(toolResult.result.structuredResult, null, 2)}\n\`\`\``;
+          }
+          if (toolResult.result?.stdout) {
+            statsContext += `\n\n**Analysis Output:**\n\`\`\`\n${toolResult.result.stdout.slice(0, 1000)}\n\`\`\``;
+          }
+        } catch (e) {
+          // Not JSON, skip
+        }
+      }
+    }
+    
+    // Use a prompt that references the actual charts generated and any statistics
+    const narrativePrompt = `Write a comprehensive narrative (4-6 sentences) accurately describing the chart(s) and statistical findings for "${sectionTitle}".
+
+The following chart(s) were successfully created:
+${chartDescriptions}
+${codeContext}
+${statsContext}
+
+**IMPORTANT**: 
+- Describe what each chart ACTUALLY shows based on the code above
+- Reference any statistical findings (mean, median, percentiles, etc.) from the analysis
+- Explain key insights and patterns observed in the data
+- Be specific about what data is visualized (e.g., "Distribution of Outstanding Amounts from ECLData dataset")
+- If statistics are provided, incorporate them (e.g., "The distribution shows a mean of X with 75% of values below Y")`;
+    
+    const narrativeResponse = await ctx.openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a documentation assistant. Write accurate, comprehensive descriptions of data visualizations and statistical findings. Reference specific numbers and patterns from the analysis.' },
+        { role: 'user', content: narrativePrompt },
+      ],
+      temperature: 0.3,
+      max_tokens: 500, // Longer for comprehensive descriptions
+    });
+    
+    // Append to existing content if any, otherwise replace
+    const newNarrative = narrativeResponse.choices[0]?.message?.content || '';
+    content = content.trim() ? `${content}\n\n${newNarrative}` : newNarrative;
+  }
+  
+  // For chart blocks, if no images were generated via tools, try to extract Python code from content
+  if (ctx.blockType === 'LLM_CHART' && generatedImages.length === 0 && content) {
     console.log(`[EvidenceAgent] ⚠️ Chart block "${sectionTitle}" did not generate image via tools. Attempting fallback extraction...`);
     const pythonCodeMatch = content.match(/```python\s*([\s\S]*?)```/);
     if (pythonCodeMatch) {
@@ -737,10 +997,11 @@ The chart has been successfully created. Just describe what it shows.`;
         } else {
           const chartResult = await generateChart(pythonCode);
           if (chartResult.success && chartResult.imageBase64) {
-            generatedImage = {
+            generatedImages.push({
               base64: chartResult.imageBase64,
               mimeType: chartResult.imageMimeType || 'image/png',
-            };
+              description: 'Chart from extracted code',
+            });
             executedCode = pythonCode;
             console.log(`[EvidenceAgent] ✅ Chart generated successfully via fallback for "${sectionTitle}"`);
           } else {
@@ -811,6 +1072,15 @@ The chart has been successfully created. Just describe what it shows.`;
     })),
   }));
   
+  // Convert array to single image for backward compatibility (UI expects single image for now)
+  // TODO: Update UI to support multiple images
+  const generatedImage = generatedImages.length > 0 ? generatedImages[generatedImages.length - 1] : undefined;
+  
+  console.log(`[EvidenceAgent] Returning ${generatedImages.length} chart(s) for "${sectionTitle}"`);
+  if (generatedImages.length > 1) {
+    console.log(`[EvidenceAgent] Multiple charts: ${generatedImages.map((img, idx) => `Chart ${idx + 1}: ${img.description || 'No description'}`).join(', ')}`);
+  }
+  
   return {
     content,
     citations,
@@ -820,7 +1090,8 @@ The chart has been successfully created. Just describe what it shows.`;
     confidence,
     qualityMetrics,
     gaps,
-    generatedImage,
+    generatedImage, // For backward compatibility - last chart
+    generatedImages, // New: array of all charts
     executedCode,
     ragSources,
     dataEvidence,

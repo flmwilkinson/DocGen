@@ -1162,20 +1162,9 @@ async function generateBlock(
       const metrics = evidenceResult.qualityMetrics;
       console.log(`[OpenAI] Evidence agent completed: Tier-1: ${metrics.tier1Citations}/${metrics.totalCitations}, Gaps: ${evidenceResult.gaps.length}`);
       
-      // Check if this is data-heavy and add data evidence info to content
+      // Use content as-is (don't automatically add Data Schema Evidence table)
+      // The LLM can reference data evidence in the narrative if needed, but we don't force it
       let content = evidenceResult.content;
-      if (evidenceResult.evidenceBundle.dataEvidence.length > 0) {
-        content += '\n\n### Data Schema Evidence (Computed)\n\n';
-        for (const dataEv of evidenceResult.evidenceBundle.dataEvidence) {
-          content += `**${dataEv.filePath}** (${dataEv.rowCount} rows, ${dataEv.columns.length} columns)\n\n`;
-          content += '| Column | Type | Null% | Range |\n|--------|------|-------|-------|\n';
-          for (const col of dataEv.columns.slice(0, 10)) {
-            const range = col.min && col.max ? `${col.min} - ${col.max}` : '-';
-            content += `| ${col.name} | ${col.dtype} | ${col.nullPercent}% | ${range} |\n`;
-          }
-          content += '\n';
-        }
-      }
 
       const generatedBlock = {
         id: block.id,

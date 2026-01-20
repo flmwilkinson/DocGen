@@ -433,13 +433,20 @@ ${keyFacts ? `Key Facts: ${keyFacts}` : ''}
 ${analysisSummary ? `\n${analysisSummary}` : ''}
 
 ## YOUR TASK
-Write 4-6 sentences that:
-1. Describe what each chart shows
-2. Reference the statistical findings
-3. Explain key insights and patterns
+Write comprehensive documentation (4-8 paragraphs) that:
+1. Describes what each chart shows
+2. References the statistical findings
+3. Explains key insights and patterns
 4. Be specific about data sources and metrics
 
-Include the charts and tables in your response naturally.`;
+## CRITICAL: CHART PLACEMENT
+You MUST place charts inline within your narrative where they are most relevant. Use these placeholders:
+${charts.map((chart, idx) => `- [CHART:${idx}] - Place this where you discuss "${chart.description}"`).join('\n')}
+
+For example, if discussing outstanding amounts, write:
+"The distribution of outstanding amounts reveals important patterns. [CHART:0] shows that most accounts fall within the $0-$50,000 range..."
+
+Place each chart immediately after the sentence where you first mention what it shows. DO NOT put all charts at the end.`;
 
   const response = await ctx.openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -453,9 +460,72 @@ Include the charts and tables in your response naturally.`;
   
   let content = response.choices[0]?.message?.content || '';
   
+  // Replace chart placeholders with actual chart markers that the UI can parse
+  // Format: [CHART:0] becomes a special marker that includes chart index and code
+  charts.forEach((chart, idx) => {
+    const placeholder = new RegExp(`\\[CHART:${idx}\\]`, 'gi');
+    // Replace with a marker that includes chart index and will be processed by UI
+    // We'll use a special format: <!--CHART_START:index:description-->...<!--CHART_END:index-->
+    content = content.replace(placeholder, `<!--CHART_START:${idx}:${chart.description.replace(/[<>]/g, '')}-->`);
+  });
+  
+  // If LLM didn't use placeholders, insert charts at natural break points
+  // Find paragraph breaks and insert charts there
+  if (!content.includes('CHART_START')) {
+    const paragraphs = content.split(/\n\n+/);
+    const chartInsertions: Array<{ index: number; chartIdx: number }> = [];
+    
+    charts.forEach((chart, idx) => {
+      // Try to find a paragraph that mentions something related to the chart
+      const chartKeywords = chart.description.toLowerCase().split(/\s+/);
+      let bestMatch = -1;
+      let bestScore = 0;
+      
+      paragraphs.forEach((para, paraIdx) => {
+        const paraLower = para.toLowerCase();
+        const score = chartKeywords.reduce((sum, keyword) => 
+          sum + (paraLower.includes(keyword) ? 1 : 0), 0
+        );
+        if (score > bestScore && paraIdx < paragraphs.length - 1) {
+          bestScore = score;
+          bestMatch = paraIdx;
+        }
+      });
+      
+      if (bestMatch >= 0) {
+        chartInsertions.push({ index: bestMatch + 1, chartIdx: idx });
+      } else {
+        // Fallback: insert after first paragraph, then second, etc.
+        chartInsertions.push({ index: Math.min(idx + 1, paragraphs.length - 1), chartIdx: idx });
+      }
+    });
+    
+    // Insert charts in reverse order to maintain indices
+    chartInsertions.sort((a, b) => b.index - a.index);
+    chartInsertions.forEach(({ index, chartIdx }) => {
+      if (index < paragraphs.length) {
+        paragraphs.splice(index, 0, `<!--CHART_START:${chartIdx}:${charts[chartIdx].description.replace(/[<>]/g, '')}-->`);
+      }
+    });
+    
+    content = paragraphs.join('\n\n');
+  }
+  
   // Create tables using create_data_table tool if we have statistics
+  // Track table captions to prevent duplicates
+  const seenTableCaptions = new Set<string>();
   if (tables.length > 0) {
     for (const table of tables) {
+      // Skip if we've already generated a table with this caption
+      if (table.caption && seenTableCaptions.has(table.caption)) {
+        console.log(`[ChartAgent] Skipping duplicate table: ${table.caption}`);
+        continue;
+      }
+      
+      if (table.caption) {
+        seenTableCaptions.add(table.caption);
+      }
+      
       try {
         const toolResult = await executeTool('create_data_table', {
           headers: table.headers,
@@ -508,8 +578,9 @@ export async function generateChartWithReAct(
   // STEP 5: DOCUMENT
   const { content, tables } = await document(ctx, sectionTitle, sectionInstructions, plan, charts, analyses, keyFacts, statistics);
   
-  // Combine all executed code
-  const allCode = charts.map(c => c.code).join('\n\n# ---\n\n');
+  // Store code per chart (for inline rendering)
+  // The UI will split by the separator to get individual chart codes
+  const allCode = charts.map((c, idx) => `# Chart ${idx + 1}: ${c.description}\n${c.code}`).join('\n\n# ---\n\n');
   
   return {
     content,

@@ -1601,7 +1601,7 @@ export default function DocumentEditorPage() {
                           </div>
                         )}
 
-                        {/* Block Content */}
+                        {/* Block Content with Inline Charts */}
                         <div className={cn(
                           "prose prose-sm max-w-none transition-colors duration-300",
                           "prose-headings:text-foreground prose-p:text-foreground/90",
@@ -1611,78 +1611,221 @@ export default function DocumentEditorPage() {
                           "light:bg-white",
                           "dark:prose-invert dark:bg-transparent"
                         )}>
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
-                              h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
-                              h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
-                              p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
-                              ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
-                              ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
-                              li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
-                              strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
-                              em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
-                              code: ({ children, className }) => {
-                                const isInline = !className;
-                                return isInline ? (
-                                  <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
-                                ) : (
-                                  <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
+                          {(() => {
+                            // Parse content for inline chart markers
+                            const charts = block.generatedImages && block.generatedImages.length > 0 
+                              ? block.generatedImages 
+                              : block.generatedImage 
+                                ? [block.generatedImage] 
+                                : [];
+                            
+                            // Split executed code by chart if we have multiple charts
+                            // Format: "# Chart 1: description\ncode\n\n# ---\n\n# Chart 2: description\ncode"
+                            const chartCodes = block.executedCode 
+                              ? block.executedCode.split(/\n\n# ---\n\n/).map(code => {
+                                  // Remove the "# Chart N: description" header if present
+                                  return code.replace(/^# Chart \d+: .+\n/, '').trim();
+                                }).filter(Boolean)
+                              : [];
+                            
+                            // Check if content has chart markers
+                            const chartMarkerRegex = /<!--CHART_START:(\d+):([^>]+)-->/g;
+                            const hasInlineCharts = chartMarkerRegex.test(block.content);
+                            
+                            if (!hasInlineCharts || charts.length === 0) {
+                              // No inline charts - render normally with charts at end
+                              return (
+                                <>
+                                  <ReactMarkdown 
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                      h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
+                                      h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
+                                      h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
+                                      p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
+                                      ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
+                                      ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
+                                      li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
+                                      strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
+                                      em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
+                                      code: ({ children, className }) => {
+                                        const isInline = !className;
+                                        return isInline ? (
+                                          <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
+                                        ) : (
+                                          <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
+                                        );
+                                      },
+                                      pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
+                                      blockquote: ({ children }) => (
+                                        <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
+                                          {children}
+                                        </blockquote>
+                                      ),
+                                      table: ({ children }) => (
+                                        <div className="overflow-x-auto my-3">
+                                          <table className="w-full border-collapse text-sm">{children}</table>
+                                        </div>
+                                      ),
+                                      th: ({ children }) => (
+                                        <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
+                                      ),
+                                      td: ({ children }) => (
+                                        <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
+                                      ),
+                                    }}
+                                  >
+                                    {block.content}
+                                  </ReactMarkdown>
+                                  
+                                  {/* Charts at end if no inline markers */}
+                                  {charts.map((chart, idx) => (
+                                    <div key={idx} className="mt-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <BarChart3 className="h-4 w-4 text-brand-orange" />
+                                        <span className="text-sm font-medium">
+                                          {charts.length > 1 
+                                            ? `Generated Chart ${idx + 1}${chart.description ? `: ${chart.description}` : ''}`
+                                            : 'Generated Chart'}
+                                        </span>
+                                      </div>
+                                      <img
+                                        src={`data:${chart.mimeType};base64,${chart.base64}`}
+                                        alt={`Chart ${idx + 1}: ${block.title}${chart.description ? ` - ${chart.description}` : ''}`}
+                                        className="max-w-full rounded-lg border border-glass-border/50"
+                                      />
+                                      {(chartCodes[idx] || (idx === 0 && block.executedCode)) && (
+                                        <details className="mt-3">
+                                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                                            View Python code
+                                          </summary>
+                                          <pre className="mt-2 p-3 bg-background rounded-lg text-xs overflow-x-auto">
+                                            <code>{chartCodes[idx] || block.executedCode}</code>
+                                          </pre>
+                                        </details>
+                                      )}
+                                    </div>
+                                  ))}
+                                </>
+                              );
+                            }
+                            
+                            // Parse content with inline chart markers
+                            const parts: Array<{ type: 'text' | 'chart'; content?: string; chartIndex?: number }> = [];
+                            let lastIndex = 0;
+                            chartMarkerRegex.lastIndex = 0; // Reset regex
+                            
+                            let match;
+                            while ((match = chartMarkerRegex.exec(block.content)) !== null) {
+                              // Add text before chart
+                              if (match.index > lastIndex) {
+                                parts.push({
+                                  type: 'text',
+                                  content: block.content.substring(lastIndex, match.index),
+                                });
+                              }
+                              
+                              // Add chart marker
+                              const chartIndex = parseInt(match[1], 10);
+                              parts.push({
+                                type: 'chart',
+                                chartIndex,
+                              });
+                              
+                              lastIndex = match.index + match[0].length;
+                            }
+                            
+                            // Add remaining text
+                            if (lastIndex < block.content.length) {
+                              parts.push({
+                                type: 'text',
+                                content: block.content.substring(lastIndex),
+                              });
+                            }
+                            
+                            // Render parts
+                            return parts.map((part, partIdx) => {
+                              if (part.type === 'text') {
+                                return (
+                                  <ReactMarkdown 
+                                    key={partIdx}
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                      h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
+                                      h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
+                                      h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
+                                      p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
+                                      ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
+                                      ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
+                                      li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
+                                      strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
+                                      em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
+                                      code: ({ children, className }) => {
+                                        const isInline = !className;
+                                        return isInline ? (
+                                          <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
+                                        ) : (
+                                          <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
+                                        );
+                                      },
+                                      pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
+                                      blockquote: ({ children }) => (
+                                        <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
+                                          {children}
+                                        </blockquote>
+                                      ),
+                                      table: ({ children }) => (
+                                        <div className="overflow-x-auto my-3">
+                                          <table className="w-full border-collapse text-sm">{children}</table>
+                                        </div>
+                                      ),
+                                      th: ({ children }) => (
+                                        <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
+                                      ),
+                                      td: ({ children }) => (
+                                        <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
+                                      ),
+                                    }}
+                                  >
+                                    {part.content || ''}
+                                  </ReactMarkdown>
                                 );
-                              },
-                              pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
-                              blockquote: ({ children }) => (
-                                <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
-                                  {children}
-                                </blockquote>
-                              ),
-                              table: ({ children }) => (
-                                <div className="overflow-x-auto my-3">
-                                  <table className="w-full border-collapse text-sm">{children}</table>
-                                </div>
-                              ),
-                              th: ({ children }) => (
-                                <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
-                              ),
-                              td: ({ children }) => (
-                                <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
-                              ),
-                            }}
-                          >
-                            {block.content}
-                          </ReactMarkdown>
+                              } else {
+                                // Render chart inline
+                                const chart = charts[part.chartIndex!];
+                                if (!chart) return null;
+                                
+                                const chartCode = chartCodes[part.chartIndex!] || (part.chartIndex === 0 && block.executedCode ? block.executedCode : undefined);
+                                
+                                return (
+                                  <div key={partIdx} className="my-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <BarChart3 className="h-4 w-4 text-brand-orange" />
+                                      <span className="text-sm font-medium">
+                                        {chart.description || `Chart ${part.chartIndex! + 1}`}
+                                      </span>
+                                    </div>
+                                    <img
+                                      src={`data:${chart.mimeType};base64,${chart.base64}`}
+                                      alt={`Chart ${part.chartIndex! + 1}: ${chart.description || block.title}`}
+                                      className="max-w-full rounded-lg border border-glass-border/50"
+                                    />
+                                    {chartCode && (
+                                      <details className="mt-3">
+                                        <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                                          View Python code and analysis data
+                                        </summary>
+                                        <pre className="mt-2 p-3 bg-background rounded-lg text-xs overflow-x-auto">
+                                          <code>{chartCode}</code>
+                                        </pre>
+                                      </details>
+                                    )}
+                                  </div>
+                                );
+                              }
+                            });
+                          })()}
                         </div>
-                        
-                        {/* Generated Chart Images - Support Multiple Charts */}
-                        {(block.generatedImages && block.generatedImages.length > 0 ? block.generatedImages : 
-                          block.generatedImage ? [block.generatedImage] : []).map((chart, idx) => (
-                          <div key={idx} className="mt-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
-                            <div className="flex items-center gap-2 mb-3">
-                              <BarChart3 className="h-4 w-4 text-brand-orange" />
-                              <span className="text-sm font-medium">
-                                {block.generatedImages && block.generatedImages.length > 1 
-                                  ? `Generated Chart ${idx + 1}${chart.description ? `: ${chart.description}` : ''}`
-                                  : 'Generated Chart'}
-                              </span>
-                            </div>
-                            <img
-                              src={`data:${chart.mimeType};base64,${chart.base64}`}
-                              alt={`Chart ${idx + 1}: ${block.title}${chart.description ? ` - ${chart.description}` : ''}`}
-                              className="max-w-full rounded-lg border border-glass-border/50"
-                            />
-                            {idx === 0 && block.executedCode && (
-                              <details className="mt-3">
-                                <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                                  View Python code
-                                </summary>
-                                <pre className="mt-2 p-3 bg-background rounded-lg text-xs overflow-x-auto">
-                                  <code>{block.executedCode}</code>
-                                </pre>
-                              </details>
-                            )}
-                          </div>
-                        ))}
                         
                         {/* Citations - with proper spacing */}
                         {block.citations && block.citations.length > 0 && (

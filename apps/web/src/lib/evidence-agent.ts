@@ -808,6 +808,8 @@ export async function generateSectionWithEvidence(
 
   // Track which tools have been called to prevent repeated table generation
   const calledTools = new Set<string>();
+  // Track table captions to prevent duplicates
+  const seenTableCaptions = new Set<string>();
   
   while (response.choices[0]?.message?.tool_calls && iterations < maxIterations) {
     iterations++;
@@ -827,6 +829,27 @@ export async function generateSectionWithEvidence(
     for (const toolCall of toolCalls) {
       const toolName = toolCall.function.name;
       const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+
+      // Skip duplicate table generation
+      if (toolName === 'create_data_table') {
+        const tableCaption = toolArgs.caption || 'Data Table';
+        if (seenTableCaptions.has(tableCaption)) {
+          console.log(`[EvidenceAgent] Skipping duplicate table: ${tableCaption}`);
+          // Still add tool result but mark as skipped
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ 
+              success: true, 
+              skipped: true, 
+              reason: 'Duplicate table caption',
+              message: `Table "${tableCaption}" was already generated. Skipping duplicate.`
+            }),
+          });
+          continue;
+        }
+        seenTableCaptions.add(tableCaption);
+      }
 
       // Track tool usage
       calledTools.add(toolName);

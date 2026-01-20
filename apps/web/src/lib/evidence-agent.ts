@@ -39,6 +39,7 @@ import {
   formatToolResultForDocument,
   ToolContext,
 } from './llm-tools';
+import { fetchDataFileWithCache, CachedDataFile } from './data-file-cache';
 
 // =============================================================================
 // TYPES
@@ -71,6 +72,7 @@ export interface EvidenceAgentContext {
   globalDataEvidence?: Array<any>; // Pre-computed schema audits (run once at document level)
   blockType?: 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART'; // Block type for tool selection
   onThinking?: OnThinkingCallback; // Callback to emit thinking steps
+  dataFileCache?: Map<string, CachedDataFile>; // OPTIMIZATION: Cache for data files
 }
 
 export interface EvidenceAgentResult {
@@ -119,55 +121,27 @@ export interface GeneratedEvidenceSection {
 // EVIDENCE-FIRST PROMPTS
 // =============================================================================
 
-const EVIDENCE_SYSTEM_PROMPT = `You are an EVIDENCE-FIRST documentation agent generating audit-grade banking documentation.
+const EVIDENCE_SYSTEM_PROMPT = `You are a technical documentation expert that generates content using ONLY verified evidence from codebases.
 
-## CRITICAL RULES
+## YOUR ROLE
+Follow the user's instructions exactly. Generate the specific content they request, in the style they request.
 
-1. **EVIDENCE HIERARCHY**
-   - TIER-1 (MUST USE): Core code, configs, SQL, tests, notebooks, dataset schemas
-   - TIER-2 (LOW TRUST): README, docs - use ONLY if corroborated by Tier-1
+## EVIDENCE RULES
+1. **Use provided evidence**: Only include information from the evidence provided
+2. **Cite sources**: Reference files as [filename.ext] when making technical claims
+3. **No speculation**: Do NOT invent details, names, dates, or information not in evidence
+4. **Mark gaps**: If information is missing, use [EVIDENCE GAP: description]
 
-2. **CITATION REQUIREMENTS**
-   - Every non-trivial claim MUST cite a specific file path + line range
-   - Format: [filename.ext:start-end] or [filename.ext]
-   - If you cannot find Tier-1 evidence for a claim, mark it: [EVIDENCE GAP: description]
+## OUTPUT RULES
+1. **Follow instructions exactly**: If asked for an introduction, write an introduction. If asked for charts, generate charts.
+2. **Match requested style**: Do NOT add sections, narratives, or structure not requested
+3. **No assumptions**: Do NOT assume domain (banking, healthcare, etc.) - work with any codebase
 
-3. **NO SPECULATION - ABSOLUTELY FORBIDDEN**
-   - Do NOT invent file paths, code examples, or technical details
-   - Do NOT invent names, reviewers, authors, or people - these MUST come from evidence
-   - Do NOT describe features not present in the evidence
-   - Do NOT make up dates, versions, or approval information unless explicitly in code
-   - If information is missing, say so explicitly with [EVIDENCE GAP: ...]
-
-4. **NO HALLUCINATED PEOPLE OR ENTITIES**
-   - NEVER invent author names, reviewer names, approver names, or any person names
-   - NEVER invent company names, department names, or organizational structures
-   - If the evidence doesn't contain names/people, DO NOT include them
-   - Example: If you see "Author: John Doe" in evidence, you can cite it. Otherwise, DO NOT make it up.
-
-5. **DATA EVIDENCE**
-   - If dataset schema evidence is provided, use it as PRIMARY source
-   - Include actual column names, types, null percentages from computed schema
-   - These are COMPUTED facts, not documentation claims
-
-6. **CLAIM→EVIDENCE FORMAT**
-   For each major claim, internally track:
-   - What claim am I making?
-   - What is my evidence?
-   - What tier is the evidence?
-   - What file/line proves this?
-
-7. **GAP MARKERS**
-   - [EVIDENCE GAP: description of what's missing] - when claim lacks Tier-1 support
-   - [TBD] - only for specific numeric values that need measurement
-   - [NEEDS: specific description] - for business context not in code
-   - NEVER write placeholder text like [NEEDS: xxx] - always describe what's actually needed
-
-8. **CHART GENERATION**
-   - If this is a chart block, you MUST use the generate_chart tool
-   - Write Python code using matplotlib to create the visualization
-   - The code will be executed automatically
-   - Do NOT just describe a chart - actually generate it using the tool`;
+## FOR CHART BLOCKS
+- Use the generate_chart tool to create visualizations
+- Do NOT write descriptions of charts in your output - just generate them
+- Do NOT include markdown image syntax - charts are embedded automatically
+- Let the charts speak for themselves`;
 
 /**
  * Build inline data samples from data evidence for use in chart generation
@@ -292,10 +266,10 @@ Data files are automatically transferred to the sandbox (full files fetched from
 
 \`\`\`python
 # Load a CSV file - use the EXACT path shown in AVAILABLE DATA FILES below
-df = load_data('ECL/datasets/ECLData.csv')
+df = load_data('data/dataset.csv')
 
 # Load an Excel file
-df = load_data('PD/datasets/file.xlsx')
+df = load_data('data/file.xlsx')
 \`\`\`
 
 **CRITICAL: ALWAYS INSPECT DATA FIRST**
@@ -303,7 +277,7 @@ Before plotting, you MUST inspect the data to see what columns actually exist:
 
 \`\`\`python
 # Step 1: Load the data
-df = load_data('ECL/datasets/ECLData.csv')
+df = load_data('data/dataset.csv')
 
 # Step 2: Inspect the columns (REQUIRED - do not guess column names!)
 print("Columns:", df.columns.tolist())
@@ -312,7 +286,7 @@ print("First few rows:")
 print(df.head())
 
 # Step 3: Only then plot using the ACTUAL column names
-plt.hist(df['OUTSTANDING'])  # Use the EXACT column name from df.columns
+plt.hist(df['column_name'])  # Use the EXACT column name from df.columns
 \`\`\`
 
 **IMPORTANT**: 
@@ -333,14 +307,26 @@ ${inlineDataSamples}` : ''}
 import matplotlib.pyplot as plt
 
 # Load actual data using load_data() helper
-df = load_data('ECL/datasets/ECLData.csv')
+df = load_data('data/dataset.csv')
+
+# Always inspect columns first!
+print("Columns:", df.columns.tolist())
 
 plt.figure(figsize=(10, 6))
-plt.hist(df['OUTSTANDING'], bins=30, edgecolor='white')
-plt.title('Distribution of Outstanding Amounts')
-plt.xlabel('Outstanding Amount')
+plt.hist(df['column_name'], bins=30, edgecolor='white')
+plt.title('Distribution of Values')
+plt.xlabel('Value')
 plt.ylabel('Frequency')
+# DO NOT include plt.savefig() - handled automatically!
+# DO NOT include plt.show() - not needed!
 \`\`\`
+
+**CRITICAL RULES:**
+- DO NOT include plt.savefig() calls - the chart is saved automatically
+- DO NOT include plt.show() - not supported in headless mode
+- DO NOT use file paths like "path/to/file.png" - not needed
+- DO return clean Python code WITHOUT markdown code fences (no \`\`\`python)
+- ALWAYS inspect df.columns before plotting to use correct column names
 
 **ALSO CORRECT - Inline data as fallback:**
 \`\`\`python
@@ -355,52 +341,39 @@ data = pd.DataFrame({
 plt.bar(data['Category'], data['Value'])
 \`\`\`
 
-**CRITICAL: GENERATE MULTIPLE CHARTS + STATISTICAL ANALYSIS**
+**CHART GENERATION WORKFLOW**
 
-**STEP 1: Generate Multiple Visualizations**
-- **GENERATE MULTIPLE CHARTS** - Call generate_chart MULTIPLE times to create different visualizations
-- Each chart should show a different aspect: distributions, trends, comparisons, correlations, etc.
-- Examples: histogram of one variable, box plot of another, line plot of trends, scatter plot of relationships
-- You can call generate_chart 3-5 times to create a comprehensive visual analysis
+**1. Generate Visualizations**
+- Use generate_chart tool to create charts based on the user's instructions
+- Consider creating multiple charts if requested: distributions, trends, comparisons, correlations, etc.
+- Examples: histogram, box plot, line plot, scatter plot, bar chart
 
-**STEP 2: Extract Statistics from Chart Data**
-- After generating charts, use execute_python_analysis to compute key statistics:
+**2. Extract Statistics (if requested)**
+- Use execute_python_analysis to compute statistics when asked for:
   - Mean, median, min, max, standard deviation
   - Percentiles (25th, 50th, 75th, 90th, 95th)
-  - Distribution shape indicators
-  - Correlation coefficients if comparing variables
+  - Distribution characteristics
+  - Correlation coefficients
 - Example code:
 \`\`\`python
-df = load_data('ECL/datasets/ECLData.csv')
+df = load_data('data/example.csv')
 stats = {
-    "mean": float(df['OUTSTANDING'].mean()),
-    "median": float(df['OUTSTANDING'].median()),
-    "min": float(df['OUTSTANDING'].min()),
-    "max": float(df['OUTSTANDING'].max()),
-    "std": float(df['OUTSTANDING'].std()),
-    "p25": float(df['OUTSTANDING'].quantile(0.25)),
-    "p75": float(df['OUTSTANDING'].quantile(0.75)),
-    "p90": float(df['OUTSTANDING'].quantile(0.90)),
-    "p95": float(df['OUTSTANDING'].quantile(0.95))
+    "mean": float(df['column_name'].mean()),
+    "median": float(df['column_name'].median()),
+    "std": float(df['column_name'].std()),
+    "p25": float(df['column_name'].quantile(0.25)),
+    "p75": float(df['column_name'].quantile(0.75))
 }
 _result = stats
 \`\`\`
 
-**STEP 3: Create Summary Tables**
-- Use create_data_table to present key statistics in tabular format
-- Create tables for: summary statistics, distribution percentiles, key findings
-- Tables help document the insights from the charts
-
-**STEP 4: Write Comprehensive Narrative**
-- Describe what each chart shows
-- Reference the statistical findings from the tables
-- Explain key insights and patterns observed
+**3. Create Tables (if requested)**
+- Use create_data_table to present statistics in tabular format when asked
 
 **IMPORTANT:**
-- Use \`load_data('path/to/file.csv')\` to load transferred files
+- Use \`load_data('path/to/file.csv')\` to load data files
 - The path should match paths in AVAILABLE DATA FILES above
-- Generate MULTIPLE charts first, then analyze, then create tables, then write narrative
-- Don't stop after one chart - create a comprehensive visual and statistical analysis`;
+- Follow the user's instructions exactly - don't add content they didn't request`;
   } else if (blockType === 'LLM_TABLE') {
     blockTypeInstructions = `
 ## TABLE FORMAT REQUIRED
@@ -464,7 +437,7 @@ function emitThinking(
 
 /**
  * Truncate messages to fit within context limits
- * Keeps system prompt and recent messages, removes older evidence
+ * CRITICAL: Always preserve evidence context to prevent hallucinations
  */
 function truncateMessagesForContext(
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
@@ -472,36 +445,71 @@ function truncateMessagesForContext(
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   // Estimate tokens (rough: 1 token ≈ 4 chars)
   const systemTokens = systemPrompt.length / 4;
-  const maxTokens = 100000; // Leave room for response
-  let currentTokens = systemTokens;
-  
+  const maxTokens = 120000; // gpt-4o-mini has 128k context, leave room for response
+
+  // CRITICAL: Separate evidence context from other messages
+  const evidenceMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+  const conversationMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === 'system') continue; // Skip, already have systemPrompt
+
+    // Identify evidence messages (contain "TIER-1", "EVIDENCE", or very large user prompts)
+    if (msg.role === 'user' && typeof msg.content === 'string') {
+      if (msg.content.includes('TIER-1') || msg.content.includes('EVIDENCE') ||
+          msg.content.includes('CODE FOUND') || msg.content.length > 5000) {
+        evidenceMessages.push(msg);
+        continue;
+      }
+    }
+
+    conversationMessages.push(msg);
+  }
+
+  // Always keep: system prompt + ALL evidence + recent conversation
   const truncated: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
   ];
-  
-  // Keep messages in reverse order (most recent first)
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role === 'system') continue; // Already added
-    
+
+  let currentTokens = systemTokens;
+
+  // Add ALL evidence messages (never truncate evidence!)
+  for (const evidenceMsg of evidenceMessages) {
+    const evidenceTokens = JSON.stringify(evidenceMsg).length / 4;
+    truncated.push(evidenceMsg);
+    currentTokens += evidenceTokens;
+  }
+
+  console.log(`[TruncateContext] Evidence tokens: ${Math.round(currentTokens - systemTokens)}, Remaining: ${Math.round(maxTokens - currentTokens)}`);
+
+  // Add recent conversation messages (tool calls, assistant responses)
+  // Keep most recent first to ensure we don't drop important tool results
+  for (let i = conversationMessages.length - 1; i >= 0; i--) {
+    const msg = conversationMessages[i];
     const msgTokens = JSON.stringify(msg).length / 4;
+
     if (currentTokens + msgTokens > maxTokens) {
-      // Truncate user message content if it's too long
-      if (msg.role === 'user' && typeof msg.content === 'string') {
-        const maxContentLength = (maxTokens - currentTokens) * 4;
-        truncated.unshift({
-          ...msg,
-          content: msg.content.slice(0, maxContentLength) + '\n\n[Content truncated for context length]',
-        });
-      }
+      console.log(`[TruncateContext] Reached token limit, dropping ${i + 1} older conversation messages`);
       break;
     }
-    
-    truncated.unshift(msg);
+
+    truncated.push(msg);
     currentTokens += msgTokens;
   }
-  
-  return truncated;
+
+  // Sort to ensure proper order: system, evidence, then conversation chronologically
+  const systemMsg = truncated[0];
+  const evidenceMsgs = truncated.slice(1, evidenceMessages.length + 1);
+  const convMsgs = truncated.slice(evidenceMessages.length + 1);
+
+  // Re-sort conversation messages to chronological order
+  convMsgs.reverse();
+
+  const result = [systemMsg, ...evidenceMsgs, ...convMsgs];
+
+  console.log(`[TruncateContext] Final: ${result.length} messages, ${Math.round(currentTokens)} tokens`);
+
+  return result;
 }
 
 /**
@@ -662,7 +670,7 @@ export async function generateSectionWithEvidence(
     return `https://raw.githubusercontent.com/${owner}/${repoName}/main/${filePath}`;
   }
   
-  // Get data file contents from the code intelligence context
+  // Get data file contents from the code intelligence context (with caching)
   if (ctx.blockType === 'LLM_CHART') {
     // Find data files in allFiles
     const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
@@ -670,18 +678,28 @@ export async function generateSectionWithEvidence(
       if (dataFilePatterns.test(file.path)) {
         // Check if file is truncated (from cache compression)
         // Truncated files have "[TRUNCATED:" marker or are suspiciously small for data files
-        const isTruncated = file.content.includes('[TRUNCATED:') || 
+        const isTruncated = file.content.includes('[TRUNCATED:') ||
                            (file.content.split('\n').length <= 11 && file.content.length < 50000);
-        
+
         if (isTruncated && ctx.repoUrl) {
-          // File is truncated - fetch full content from GitHub
-          console.log(`[EvidenceAgent] File ${file.path} appears truncated (${file.content.split('\n').length} lines), fetching full content from GitHub...`);
+          // File is truncated - check cache first, then fetch from GitHub
           const githubUrl = buildGitHubRawUrl(ctx.repoUrl, file.path);
           if (githubUrl) {
-            dataFilesForSandbox.push({
-              path: file.path,
-              url: githubUrl, // Use URL instead of truncated content
-            });
+            // Check cache first
+            const cached = ctx.dataFileCache?.get(file.path);
+            if (cached) {
+              console.log(`[EvidenceAgent] ✅ Using cached content for ${file.path}`);
+              dataFilesForSandbox.push({
+                path: file.path,
+                content: cached.content, // Use cached content
+              });
+            } else {
+              console.log(`[EvidenceAgent] File ${file.path} appears truncated, will fetch from GitHub with caching`);
+              dataFilesForSandbox.push({
+                path: file.path,
+                url: githubUrl, // Will be fetched and cached by sandbox
+              });
+            }
           } else {
             console.warn(`[EvidenceAgent] Could not build GitHub URL for ${file.path}`);
           }
@@ -692,8 +710,15 @@ export async function generateSectionWithEvidence(
             content: file.content,
           });
         } else if (!file.content) {
-          // No content at all - try GitHub URL
-          if (ctx.repoUrl) {
+          // No content at all - check cache first, then try GitHub URL
+          const cached = ctx.dataFileCache?.get(file.path);
+          if (cached) {
+            console.log(`[EvidenceAgent] ✅ Using cached content for ${file.path}`);
+            dataFilesForSandbox.push({
+              path: file.path,
+              content: cached.content,
+            });
+          } else if (ctx.repoUrl) {
             const githubUrl = buildGitHubRawUrl(ctx.repoUrl, file.path);
             if (githubUrl) {
               dataFilesForSandbox.push({
@@ -707,7 +732,8 @@ export async function generateSectionWithEvidence(
     }
     const urlCount = dataFilesForSandbox.filter(f => f.url).length;
     const contentCount = dataFilesForSandbox.filter(f => f.content).length;
-    console.log(`[EvidenceAgent] Found ${dataFilesForSandbox.length} data files to transfer: ${contentCount} with content, ${urlCount} from GitHub`);
+    const cachedCount = dataFilesForSandbox.filter(f => f.content && ctx.dataFileCache?.has(f.path)).length;
+    console.log(`[EvidenceAgent] Found ${dataFilesForSandbox.length} data files: ${contentCount} with content (${cachedCount} cached), ${urlCount} from GitHub`);
   }
   
   // Get available tools (especially for chart generation)
@@ -775,10 +801,13 @@ export async function generateSectionWithEvidence(
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ];
-  
+
   // For chart blocks, allow more iterations to support multiple charts + statistical analysis
   let iterations = 0;
-  const maxIterations = ctx.blockType === 'LLM_CHART' ? 8 : 3; // More iterations for charts to allow multiple visualizations + analysis
+  const maxIterations = ctx.blockType === 'LLM_CHART' ? 5 : 3; // Reduced from 8 to 5 to prevent excessive tool calls
+
+  // Track which tools have been called to prevent repeated table generation
+  const calledTools = new Set<string>();
   
   while (response.choices[0]?.message?.tool_calls && iterations < maxIterations) {
     iterations++;
@@ -798,7 +827,10 @@ export async function generateSectionWithEvidence(
     for (const toolCall of toolCalls) {
       const toolName = toolCall.function.name;
       const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
-      
+
+      // Track tool usage
+      calledTools.add(toolName);
+
       try {
         const toolResult = await executeTool(toolName, toolArgs, toolContext);
         
@@ -868,10 +900,30 @@ export async function generateSectionWithEvidence(
       }
     }
     
+    // EARLY TERMINATION: Stop if we have sufficient outputs for chart blocks
+    if (ctx.blockType === 'LLM_CHART' && iterations >= 3) {
+      const hasCharts = calledTools.has('generate_chart');
+      const hasAnalysis = calledTools.has('execute_python_analysis');
+      const hasTables = calledTools.has('create_data_table');
+
+      // Stop if we have charts AND at least one of (analysis OR tables)
+      if (hasCharts && (hasAnalysis || hasTables)) {
+        console.log('[EvidenceAgent] ✅ Chart block complete: charts + analysis/tables generated, stopping iteration');
+        emitThinking(ctx, 'complete', `Generated ${generatedImages.length} chart(s) with analysis`);
+        break; // Exit while loop
+      }
+
+      // Also stop if we've called the same tool multiple times (prevent repeated tables)
+      if (hasTables && iterations >= 4) {
+        console.log('[EvidenceAgent] ⚠️ Stopping to prevent repeated table generation');
+        break;
+      }
+    }
+
     // Continue the conversation - DON'T break early for chart blocks
     // Allow LLM to generate multiple charts, then analyze data, then create tables, then write narrative
     const truncatedMessages = truncateMessagesForContext(messages, systemPrompt);
-    
+
     // For chart blocks, encourage continued tool usage if we haven't reached max iterations
     let nextToolChoice: 'auto' | { type: 'function'; function: { name: string } } | undefined = 'auto';
     if (ctx.blockType === 'LLM_CHART' && iterations < maxIterations - 1) {
@@ -920,18 +972,26 @@ export async function generateSectionWithEvidence(
     }
   }
   
-  // For chart blocks, if we have charts but no narrative yet, generate one based on charts + any tables created
-  if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100)) {
-    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated but narrative is minimal, creating comprehensive description`);
-    
+  // For chart blocks, only generate narrative if explicitly requested in instructions
+  // Check if instructions ask for descriptions/narrative/analysis
+  const requestsNarrative = sectionInstructions.toLowerCase().includes('describe') ||
+                            sectionInstructions.toLowerCase().includes('explain') ||
+                            sectionInstructions.toLowerCase().includes('analyze') ||
+                            sectionInstructions.toLowerCase().includes('discuss') ||
+                            sectionInstructions.toLowerCase().includes('narrative') ||
+                            sectionInstructions.toLowerCase().includes('interpretation');
+
+  if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100) && requestsNarrative) {
+    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated and narrative requested, creating description`);
+
     // Build context about what charts were actually generated
-    const chartDescriptions = generatedImages.map((img, idx) => 
+    const chartDescriptions = generatedImages.map((img, idx) =>
       `Chart ${idx + 1}: ${img.description || 'Data visualization'}`
     ).join('\n');
-    
+
     // Include executed code context if available
     const codeContext = executedCode ? `\n\nThe Python code that generated the chart(s):\n\`\`\`python\n${executedCode.slice(0, 800)}\n\`\`\`` : '';
-    
+
     // Check if we have any statistical analysis results in the messages
     let statsContext = '';
     for (const msg of messages) {
@@ -949,35 +1009,38 @@ export async function generateSectionWithEvidence(
         }
       }
     }
-    
+
     // Use a prompt that references the actual charts generated and any statistics
-    const narrativePrompt = `Write a comprehensive narrative (4-6 sentences) accurately describing the chart(s) and statistical findings for "${sectionTitle}".
+    const narrativePrompt = `Write a concise description (2-3 sentences) of the chart(s) and key findings for "${sectionTitle}".
 
 The following chart(s) were successfully created:
 ${chartDescriptions}
 ${codeContext}
 ${statsContext}
 
-**IMPORTANT**: 
-- Describe what each chart ACTUALLY shows based on the code above
-- Reference any statistical findings (mean, median, percentiles, etc.) from the analysis
-- Explain key insights and patterns observed in the data
-- Be specific about what data is visualized (e.g., "Distribution of Outstanding Amounts from ECLData dataset")
-- If statistics are provided, incorporate them (e.g., "The distribution shows a mean of X with 75% of values below Y")`;
-    
+**IMPORTANT**:
+- Describe what each chart shows based on the code above
+- Reference any statistical findings if provided
+- Explain key insights and patterns observed
+- Be specific about what data is visualized (e.g., "Distribution of values from dataset.csv")
+- Keep it concise and focused`;
+
     const narrativeResponse = await ctx.openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a documentation assistant. Write accurate, comprehensive descriptions of data visualizations and statistical findings. Reference specific numbers and patterns from the analysis.' },
+        { role: 'system', content: 'You are a documentation assistant. Write concise, accurate descriptions of data visualizations. Focus on key insights and reference specific numbers when available.' },
         { role: 'user', content: narrativePrompt },
       ],
       temperature: 0.3,
-      max_tokens: 500, // Longer for comprehensive descriptions
+      max_tokens: 300, // Shorter for concise descriptions
     });
-    
+
     // Append to existing content if any, otherwise replace
     const newNarrative = narrativeResponse.choices[0]?.message?.content || '';
     content = content.trim() ? `${content}\n\n${newNarrative}` : newNarrative;
+  } else if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100)) {
+    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated, no narrative requested - charts only`);
+    // Charts will be displayed without narrative text
   }
   
   // For chart blocks, if no images were generated via tools, try to extract Python code from content

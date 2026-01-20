@@ -209,10 +209,10 @@ export async function generateChart(
   }
 ): Promise<ChartResult> {
   const startTime = Date.now();
-  
+
   // Generate execution ID for this chart
   const executionId = `chart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
+
   // Transfer data files if provided
   let dataDir = '';
   if (context?.dataFiles && context.dataFiles.length > 0) {
@@ -226,7 +226,27 @@ export async function generateChart(
       // Continue without files - code may use inline data
     }
   }
-  
+
+  // CRITICAL: Strip markdown code fences if present (LLM sometimes includes them)
+  let cleanedCode = code.trim();
+
+  // Remove markdown code fences: ```python ... ``` or ``` ... ```
+  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*\n/gm, '');
+  cleanedCode = cleanedCode.replace(/\n```\s*$/gm, '');
+  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*$/gm, ''); // Remove standalone fences
+  cleanedCode = cleanedCode.replace(/```\s*$/gm, '');
+
+  // Remove any plt.savefig() calls - we handle saving automatically
+  cleanedCode = cleanedCode.replace(/plt\.savefig\([^)]+\)/g, '# plt.savefig removed - handled automatically');
+
+  // Remove plt.show() calls
+  cleanedCode = cleanedCode.replace(/plt\.show\(\)/g, '# plt.show removed');
+
+  console.log(`[Sandbox] Original code length: ${code.length}, Cleaned: ${cleanedCode.length}`);
+  if (code !== cleanedCode) {
+    console.log(`[Sandbox] ✂️ Stripped markdown fences and plt.savefig/show calls`);
+  }
+
   // Wrap the code to ensure proper chart saving
   const wrappedCode = `
 import matplotlib
@@ -277,7 +297,7 @@ plt.rcParams['ytick.color'] = '#ffffff'
 plt.rcParams['grid.color'] = '#0f3460'
 
 # User code starts here
-${code}
+${cleanedCode}
 
 # Ensure all figures are saved (support multiple charts)
 if plt.get_fignums():
@@ -379,6 +399,13 @@ export async function executeAnalysis(
   result?: Record<string, unknown>;
   error?: string;
 }> {
+  // CRITICAL: Strip markdown code fences if present
+  let cleanedCode = code.trim();
+  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*\n/gm, '');
+  cleanedCode = cleanedCode.replace(/\n```\s*$/gm, '');
+  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*$/gm, '');
+  cleanedCode = cleanedCode.replace(/```\s*$/gm, '');
+
   // Wrap code to capture results
   const wrappedCode = `
 import json
@@ -389,7 +416,7 @@ import numpy as np
 _input_data = ${JSON.stringify(inputData || {})}
 
 # User code
-${code}
+${cleanedCode}
 
 # If _result is defined, it will be captured
 `;

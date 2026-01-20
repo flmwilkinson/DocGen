@@ -357,7 +357,7 @@ If the code doesn't contain what's needed for this section, adapt the section to
   });
 
   // Handle tool calls in a loop
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+  let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ];

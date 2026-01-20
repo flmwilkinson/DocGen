@@ -126,6 +126,8 @@ export interface GenerationContext {
   globalDataFiles?: Array<{ path: string; content: string }>;
   // OPTIMIZATION: Pre-computed schema audits (run once at document level)
   globalDataEvidence?: Array<any>;
+  // OPTIMIZATION: Data file cache (prevents re-fetching from GitHub)
+  dataFileCache?: Map<string, { content: string; url?: string; fetchedAt: number; size: number }>;
 }
 
 // Re-export for use in other files
@@ -1193,9 +1195,28 @@ async function generateBlock(
       } as GeneratedBlock & { evidenceBundle?: EvidenceBundle; qualityMetrics?: QualityMetrics };
       
       if (evidenceResult.generatedImages && evidenceResult.generatedImages.length > 0) {
-        console.log(`[OpenAI] Block "${block.title}" has ${evidenceResult.generatedImages.length} chart(s)`);
+        console.log(`[OpenAI] ✅ Block "${block.title}" has ${evidenceResult.generatedImages.length} chart(s)`);
+        console.log(`[OpenAI] Chart details:`, evidenceResult.generatedImages.map((img, i) => ({
+          index: i,
+          mimeType: img.mimeType,
+          base64Length: img.base64?.length || 0,
+          description: img.description || 'no description',
+        })));
+      } else {
+        if (block.type === 'LLM_CHART') {
+          console.warn(`[OpenAI] ⚠️ Chart block "${block.title}" has NO charts!`);
+          console.warn(`[OpenAI] evidenceResult.generatedImages:`, evidenceResult.generatedImages);
+          console.warn(`[OpenAI] evidenceResult.generatedImage:`, evidenceResult.generatedImage ? 'EXISTS' : 'MISSING');
+        }
       }
-      
+
+      // Verify the generatedBlock has the images before returning
+      if (generatedBlock.generatedImages && generatedBlock.generatedImages.length > 0) {
+        console.log(`[OpenAI] ✅ Verified: generatedBlock has ${generatedBlock.generatedImages.length} image(s)`);
+      } else if (block.type === 'LLM_CHART') {
+        console.error(`[OpenAI] ❌ ERROR: generatedBlock for chart "${block.title}" has NO images!`);
+      }
+
       return generatedBlock;
     } catch (error) {
       console.error(`[OpenAI] ❌ Evidence agent failed for "${block.title}", falling back to ReAct agent:`, error);

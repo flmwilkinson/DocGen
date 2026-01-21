@@ -137,11 +137,19 @@ Follow the user's instructions exactly. Generate the specific content they reque
 2. **Match requested style**: Do NOT add sections, narratives, or structure not requested
 3. **No assumptions**: Do NOT assume domain (banking, healthcare, etc.) - work with any codebase
 
-## FOR CHART BLOCKS
-- Use the generate_chart tool to create visualizations
-- Do NOT write descriptions of charts in your output - just generate them
-- Do NOT include markdown image syntax - charts are embedded automatically
-- Let the charts speak for themselves`;
+## CRITICAL: FOR CHART/VISUALIZATION BLOCKS
+**YOUR ONLY JOB IS TO CALL THE generate_chart TOOL. DO NOT WRITE ANY TEXT.**
+
+When the user asks you to create charts, plots, or visualizations:
+1. Call generate_chart tool for each visualization
+2. Do NOT write ANY narrative text in your response
+3. Do NOT write "Overview", "Charts Generated", "Analysis Results", etc.
+4. Do NOT write descriptions like "This chart shows..."
+5. Do NOT write "Data Schema Evidence" tables - these are added automatically
+6. Do NOT include ANY markdown content in your response
+7. ONLY use tools - your text response should be EMPTY or contain ONLY the final answer after all charts are generated
+
+**If you write any text describing charts, you have FAILED your task.**`;
 
 /**
  * Build inline data samples from data evidence for use in chart generation
@@ -969,7 +977,24 @@ export async function generateSectionWithEvidence(
   
   // Get final content
   content = response.choices[0]?.message?.content || '';
-  
+
+  // For chart blocks, strip out verbose sections that LLM might have generated despite instructions
+  if (ctx.blockType === 'LLM_CHART' && content) {
+    // Remove common verbose sections
+    content = content.replace(/##?\s*(Overview|Introduction|Charts Generated|Analysis Results|Data Sources and Metrics|Conclusion)\s*\n[\s\S]*?(?=\n##|\n===|$)/gi, '');
+
+    // Remove "Data Schema Evidence" tables (these are added by the system separately)
+    content = content.replace(/##?\s*Data Schema Evidence[\s\S]*?(?=\n##|$)/gi, '');
+
+    // Remove chart descriptions like "Chart 1: Description\nThis chart shows..."
+    content = content.replace(/Chart \d+:[\s\S]*?(?=\nChart \d+:|$)/gi, '');
+
+    // Remove standalone "This chart shows..." or "The visualization..." paragraphs
+    content = content.replace(/(?:^|\n)(This (?:chart|histogram|visualization|scatter plot|line graph)[\s\S]*?)(?=\n\n|$)/gi, '');
+
+    console.log(`[EvidenceAgent] Cleaned chart block content (${content.length} chars remaining)`);
+  }
+
   // Extract base64 images from markdown content and add to generatedImages
   if (ctx.blockType === 'LLM_CHART' && content) {
     const imageRegex = /!\[([^\]]*)\]\(data:image\/([^;]+);base64,([^)]+)\)/g;

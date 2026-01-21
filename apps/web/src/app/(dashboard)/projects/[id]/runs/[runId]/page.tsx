@@ -1631,81 +1631,139 @@ export default function DocumentEditorPage() {
                             // Check if content has chart markers
                             const chartMarkerRegex = /<!--CHART_START:(\d+):([^>]+)-->/g;
                             const hasInlineCharts = chartMarkerRegex.test(block.content);
-                            
-                            if (!hasInlineCharts || charts.length === 0) {
-                              // No inline charts - render normally with charts at end
+
+                            // If no charts, just render content
+                            if (charts.length === 0) {
+                              return (
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
+                                    h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
+                                    h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
+                                    p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
+                                    ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
+                                    ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
+                                    li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
+                                    strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
+                                    em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
+                                    code: ({ children, className }) => {
+                                      const isInline = !className;
+                                      return isInline ? (
+                                        <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
+                                      ) : (
+                                        <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
+                                      );
+                                    },
+                                    pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
+                                    blockquote: ({ children }) => (
+                                      <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
+                                        {children}
+                                      </blockquote>
+                                    ),
+                                    table: ({ children }) => (
+                                      <div className="overflow-x-auto my-3">
+                                        <table className="w-full border-collapse text-sm">{children}</table>
+                                      </div>
+                                    ),
+                                    th: ({ children }) => (
+                                      <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
+                                    ),
+                                    td: ({ children }) => (
+                                      <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
+                                    ),
+                                  }}
+                                >
+                                  {block.content}
+                                </ReactMarkdown>
+                              );
+                            }
+
+                            // If no inline markers but we have charts, render charts inline at the top
+                            if (!hasInlineCharts) {
                               return (
                                 <>
-                                  <ReactMarkdown 
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                      h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
-                                      h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
-                                      h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
-                                      p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
-                                      ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
-                                      ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
-                                      li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
-                                      strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
-                                      em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
-                                      code: ({ children, className }) => {
-                                        const isInline = !className;
-                                        return isInline ? (
-                                          <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
-                                        ) : (
-                                          <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
-                                        );
-                                      },
-                                      pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
-                                      blockquote: ({ children }) => (
-                                        <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
-                                          {children}
-                                        </blockquote>
-                                      ),
-                                      table: ({ children }) => (
-                                        <div className="overflow-x-auto my-3">
-                                          <table className="w-full border-collapse text-sm">{children}</table>
-                                        </div>
-                                      ),
-                                      th: ({ children }) => (
-                                        <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
-                                      ),
-                                      td: ({ children }) => (
-                                        <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
-                                      ),
-                                    }}
-                                  >
-                                    {block.content}
-                                  </ReactMarkdown>
-                                  
-                                  {/* Charts at end if no inline markers */}
+                                  {/* Render all charts first */}
                                   {charts.map((chart, idx) => (
-                                    <div key={idx} className="mt-4 p-4 bg-glass-bg rounded-lg border border-glass-border">
+                                    <div key={idx} className="mb-6 p-4 bg-glass-bg rounded-lg border border-glass-border">
                                       <div className="flex items-center gap-2 mb-3">
                                         <BarChart3 className="h-4 w-4 text-brand-orange" />
                                         <span className="text-sm font-medium">
-                                          {charts.length > 1 
-                                            ? `Generated Chart ${idx + 1}${chart.description ? `: ${chart.description}` : ''}`
-                                            : 'Generated Chart'}
+                                          {chart.description || (charts.length > 1 ? `Chart ${idx + 1}` : 'Generated Chart')}
                                         </span>
                                       </div>
-                                      <img
-                                        src={`data:${chart.mimeType};base64,${chart.base64}`}
-                                        alt={`Chart ${idx + 1}: ${block.title}${chart.description ? ` - ${chart.description}` : ''}`}
-                                        className="max-w-full rounded-lg border border-glass-border/50"
-                                      />
+                                      <div className="relative w-full" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                                        <img
+                                          src={`data:${chart.mimeType};base64,${chart.base64}`}
+                                          alt={`Chart ${idx + 1}: ${chart.description || block.title}`}
+                                          className="w-full h-auto rounded-lg border border-glass-border/50"
+                                          style={{ maxWidth: '100%', display: 'block' }}
+                                        />
+                                      </div>
                                       {(chartCodes[idx] || (idx === 0 && block.executedCode)) && (
                                         <details className="mt-3">
-                                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                                            View Python code
+                                          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1">
+                                            <span>📊</span>
+                                            <span>View Python code and analysis data</span>
                                           </summary>
-                                          <pre className="mt-2 p-3 bg-background rounded-lg text-xs overflow-x-auto">
+                                          <pre className="mt-2 p-3 bg-background rounded-lg text-xs overflow-x-auto max-h-96 custom-scrollbar">
                                             <code>{chartCodes[idx] || block.executedCode}</code>
                                           </pre>
                                         </details>
                                       )}
                                     </div>
                                   ))}
+
+                                  {/* Then render content if any */}
+                                  {block.content && block.content.trim() && (
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm]}
+                                      components={{
+                                        h1: ({ children }) => <h1 className={cn("text-2xl font-bold mt-6 mb-3 first:mt-0", "light:text-gray-900 dark:text-foreground")}>{children}</h1>,
+                                        h2: ({ children }) => <h2 className={cn("text-xl font-bold mt-5 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h2>,
+                                        h3: ({ children }) => <h3 className={cn("text-lg font-semibold mt-4 mb-2", "light:text-gray-900 dark:text-foreground")}>{children}</h3>,
+                                        p: ({ children }) => <p className={cn("my-2 leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</p>,
+                                        ul: ({ children }) => <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>,
+                                        ol: ({ children }) => <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>,
+                                        li: ({ children }) => <li className={cn("leading-relaxed text-sm", "light:text-gray-800 dark:text-foreground/90")}>{children}</li>,
+                                        strong: ({ children }) => <strong className={cn("font-semibold", "light:text-gray-900 dark:text-foreground")}>{children}</strong>,
+                                        em: ({ children }) => <em className={cn("italic", "light:text-gray-800 dark:text-foreground/90")}>{children}</em>,
+                                        code: ({ children, className }) => {
+                                          const isInline = !className;
+                                          return isInline ? (
+                                            <code className={cn("bg-glass-bg px-1.5 py-0.5 rounded text-brand-orange text-xs", "light:bg-gray-100 light:text-brand-orange")}>{children}</code>
+                                          ) : (
+                                            <code className={cn("block bg-glass-bg p-3 rounded-lg overflow-x-auto text-xs", "light:bg-gray-100 light:text-gray-900 dark:text-foreground")}>{children}</code>
+                                          );
+                                        },
+                                        pre: ({ children }) => <pre className={cn("bg-glass-bg rounded-lg overflow-x-auto my-3", "light:bg-gray-100")}>{children}</pre>,
+                                        blockquote: ({ children }) => (
+                                          <blockquote className={cn("border-l-4 border-brand-orange pl-3 my-3 italic text-sm", "light:text-gray-700 dark:text-muted-foreground")}>
+                                            {children}
+                                          </blockquote>
+                                        ),
+                                        table: ({ children }) => (
+                                          <details className="my-3 p-3 bg-glass-bg rounded-lg border border-glass-border">
+                                            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground flex items-center gap-1 mb-2">
+                                              <span>📋</span>
+                                              <span>View Data Table</span>
+                                            </summary>
+                                            <div className="overflow-x-auto mt-2">
+                                              <table className="w-full border-collapse text-sm">{children}</table>
+                                            </div>
+                                          </details>
+                                        ),
+                                        th: ({ children }) => (
+                                          <th className={cn("border border-glass-border bg-glass-bg px-3 py-2 text-left font-medium text-xs", "light:text-gray-900 dark:text-foreground")}>{children}</th>
+                                        ),
+                                        td: ({ children }) => (
+                                          <td className={cn("border border-glass-border px-3 py-2 text-xs", "light:text-gray-800 dark:text-foreground/90")}>{children}</td>
+                                        ),
+                                      }}
+                                    >
+                                      {block.content}
+                                    </ReactMarkdown>
+                                  )}
                                 </>
                               );
                             }

@@ -490,7 +490,8 @@ export default function ProjectPage() {
               </Link>
             </div>
             
-            <div className="space-y-2">
+            {/* Scrollable template list - shows ~5 items, scrollable for more */}
+            <div className="max-h-[320px] overflow-y-auto custom-scrollbar space-y-2 pr-2">
               {templates.map((template) => (
                 <div
                   key={template.id}
@@ -801,7 +802,8 @@ export default function ProjectPage() {
                     </div>
                   )}
 
-                    <div className="space-y-2 mb-6">
+                    {/* Scrollable template list - shows ~5 items, scrollable for more */}
+                    <div className="max-h-[400px] overflow-y-auto custom-scrollbar space-y-2 mb-6 pr-2">
                       {templates.map((template) => {
                         const blocksCount = flattenTemplateBlocks(template).length;
                         return (

@@ -151,9 +151,9 @@ export default function TemplatesPage() {
   };
 
   return (
-    <div className="space-y-8 p-6 relative z-0 overflow-x-hidden">
+    <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0 mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Templates</h1>
           <p className="mt-1 text-muted-foreground">

@@ -187,14 +187,39 @@ export default function ProjectPage() {
         templateName: template.name,
       });
 
+      // Navigate to document page immediately so user can see sections as they stream in
+      console.log('[UI] Navigating to document page for real-time updates');
+      router.push(`/projects/${projectId}/runs/${runId}`);
+
       // Call real OpenAI generation with timeout and caching
       const generationPromise = generateDocument(
-        context, 
+        context,
         (progress, message) => {
           console.log('[UI] Progress update:', progress, message);
           setGenerationProgress(progress);
           setGenerationMessage(message);
           updateRun(runId, { progress: Math.round(progress) });
+        },
+        (section) => {
+          // Stream completed sections to UI in real-time
+          console.log('[UI] Section completed, streaming to document:', section.title);
+
+          // Get current run state
+          const currentState = useProjectsStore.getState();
+          const currentProject = currentState.projects.find(p => p.id === projectId);
+          const currentRun = currentProject?.runs.find(r => r.id === runId);
+
+          if (currentRun) {
+            // Append new section to existing sections
+            const updatedSections = [...(currentRun.sections || []), section];
+
+            updateRun(runId, {
+              sections: updatedSections,
+              progress: Math.round(15 + (updatedSections.length / template.sections.length) * 70),
+            });
+
+            console.log(`[UI] ✅ Section "${section.title}" streamed to UI (${updatedSections.length}/${template.sections.length} sections complete)`);
+          }
         },
         {
           lastCommitHash: project.lastCommitHash,
@@ -236,23 +261,17 @@ export default function ProjectPage() {
 
       setGenerationProgress(100);
       setGenerationMessage('Complete!');
-      
+
       // Stop tracking (notification will be shown by the service)
       notificationService.stopTracking(runId);
-      
-      // Show toast notification
+
+      // Show toast notification (user is already on the document page)
       toast.success('Document generation complete!', {
         description: `${template.name} is ready to view`,
-        action: {
-          label: 'View',
-          onClick: () => router.push(`/projects/${projectId}/runs/${runId}`),
-        },
-        duration: 10000,
+        duration: 5000,
       });
-      
-      // Navigate to the run result (only if still on this page)
-      await new Promise(resolve => setTimeout(resolve, 500));
-      router.push(`/projects/${projectId}/runs/${runId}`);
+
+      // No need to navigate - user is already viewing the document with real-time updates
       
     } catch (error) {
       console.error('[UI] Generation failed:', error);

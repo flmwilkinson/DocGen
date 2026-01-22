@@ -1703,29 +1703,71 @@ async function processSection(
   onProgress: (message: string) => void
 ): Promise<GeneratedSection> {
   const currentPath = [...path, section.title];
-  
+
   // Generate all blocks in this section
-  const blocks: GeneratedBlock[] = [];
+  let blocks: GeneratedBlock[] = [];
   console.log(`[OpenAI] Processing section "${section.title}" with ${section.blocks.length} blocks`);
-  
-  for (let i = 0; i < section.blocks.length; i++) {
-    const block = section.blocks[i];
-    console.log(`[OpenAI] Generating block ${i + 1}/${section.blocks.length}: "${block.title}" (type: ${block.type})`);
-    
-    // Show both section and block in progress
-    onProgress(`Generating: ${section.title} → ${block.title} (${block.type})`);
-    
-    const generatedBlock = await generateBlock(openai, context, {
-      id: block.id,
-      title: block.title,
-      type: block.type,
-      instructions: block.instructions,
-      dataSources: block.dataSources || [],
-      sectionPath: currentPath,
+
+  // OPTIMIZATION: Parallelize block generation within a section
+  // Blocks are independent and can be generated concurrently
+  const canParallelize = section.blocks.length > 1;
+
+  if (canParallelize) {
+    console.log(`[OpenAI] 🚀 Generating ${section.blocks.length} blocks IN PARALLEL for "${section.title}"`);
+    const sectionStartTime = Date.now();
+
+    // Generate all blocks in parallel
+    const blockPromises = section.blocks.map(async (block, i) => {
+      const blockStartTime = Date.now();
+      console.log(`[OpenAI] Starting parallel block ${i + 1}/${section.blocks.length}: "${block.title}" (${block.type})`);
+
+      onProgress(`Generating: ${section.title} → ${block.title} (${block.type}) [parallel]`);
+
+      const generatedBlock = await generateBlock(openai, context, {
+        id: block.id,
+        title: block.title,
+        type: block.type,
+        instructions: block.instructions,
+        dataSources: block.dataSources || [],
+        sectionPath: currentPath,
+      });
+
+      const blockDuration = Date.now() - blockStartTime;
+      console.log(`[OpenAI] ✅ Block "${block.title}" complete in ${Math.round(blockDuration / 1000)}s (parallel). Has image: ${!!generatedBlock.generatedImage}`);
+
+      return generatedBlock;
     });
-    
-    console.log(`[OpenAI] Block "${block.title}" complete. Has image: ${!!generatedBlock.generatedImage}`);
-    blocks.push(generatedBlock);
+
+    // Wait for all blocks to complete
+    blocks = await Promise.all(blockPromises);
+
+    const sectionDuration = Date.now() - sectionStartTime;
+    console.log(`[OpenAI] 🎉 All ${blocks.length} blocks for "${section.title}" completed in ${Math.round(sectionDuration / 1000)}s (parallel execution)`);
+  } else {
+    // Single block - no need to parallelize
+    console.log(`[OpenAI] Generating single block for "${section.title}" (sequential)`);
+
+    for (let i = 0; i < section.blocks.length; i++) {
+      const block = section.blocks[i];
+      const blockStartTime = Date.now();
+      console.log(`[OpenAI] Generating block ${i + 1}/${section.blocks.length}: "${block.title}" (type: ${block.type})`);
+
+      // Show both section and block in progress
+      onProgress(`Generating: ${section.title} → ${block.title} (${block.type})`);
+
+      const generatedBlock = await generateBlock(openai, context, {
+        id: block.id,
+        title: block.title,
+        type: block.type,
+        instructions: block.instructions,
+        dataSources: block.dataSources || [],
+        sectionPath: currentPath,
+      });
+
+      const blockDuration = Date.now() - blockStartTime;
+      console.log(`[OpenAI] Block "${block.title}" complete in ${Math.round(blockDuration / 1000)}s. Has image: ${!!generatedBlock.generatedImage}`);
+      blocks.push(generatedBlock);
+    }
   }
   
   // Process subsections recursively
@@ -2204,6 +2246,7 @@ Be brutally honest. If this is a web app that calls APIs, say so. Don't make it 
 export async function generateDocument(
   context: GenerationContext,
   onProgress?: (progress: number, message: string) => void,
+  onSectionComplete?: (section: GeneratedSection) => void,
   projectCache?: {
     lastCommitHash?: string;
     cachedKnowledgeBase?: any;
@@ -2494,6 +2537,12 @@ export async function generateDocument(
         }
       );
       sections.push(section);
+
+      // NEW: Stream section to UI immediately after completion
+      if (onSectionComplete) {
+        console.log(`[DocGen] Streaming completed section to UI: "${section.title}"`);
+        onSectionComplete(section);
+      }
     }
     
     // Run gap detection

@@ -367,14 +367,12 @@ When deploying to production, you'll need to:
 
 ## OpenAI API Setup
 
-### Get API Key
+### Option A: Direct OpenAI Access
 
 1. Go to https://platform.openai.com/api-keys
 2. Click **"Create new secret key"**
 3. Name it (e.g., "DocGen Development")
 4. Copy the key immediately (starts with `sk-`)
-
-### Add to Environment
 
 Update your `apps/web/.env.local`:
 
@@ -382,6 +380,28 @@ Update your `apps/web/.env.local`:
 OPENAI_API_KEY="sk-your-key-here"
 NEXT_PUBLIC_OPENAI_API_KEY="sk-your-key-here"
 ```
+
+### Option B: Corporate Proxy / Azure OpenAI / Custom Endpoint
+
+If you're accessing OpenAI through your organization's proxy, Azure OpenAI, or another OpenAI-compatible API:
+
+```env
+# Your organization's API key
+OPENAI_API_KEY="your-corporate-api-key"
+NEXT_PUBLIC_OPENAI_API_KEY="your-corporate-api-key"
+
+# Your organization's API endpoint
+OPENAI_BASE_URL="https://your-proxy.company.com/v1"
+NEXT_PUBLIC_OPENAI_BASE_URL="https://your-proxy.company.com/v1"
+```
+
+**Common base URL formats:**
+| Provider | Base URL Format |
+|----------|-----------------|
+| Corporate Proxy | `https://your-proxy.company.com/v1` |
+| Azure OpenAI | `https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT` |
+| Local LLM (Ollama) | `http://localhost:11434/v1` |
+| Other Compatible APIs | Check your provider's documentation |
 
 ### Models Used
 
@@ -391,9 +411,11 @@ NEXT_PUBLIC_OPENAI_API_KEY="sk-your-key-here"
 | `MODEL_FAST` | `gpt-4o-mini` | Fast operations, summaries |
 | `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Vector embeddings for search |
 
+**Note:** If using Azure OpenAI or another provider, you may need to adjust the model names to match your deployment names.
+
 ### Usage & Billing
 
-- Monitor usage at https://platform.openai.com/usage
+- Monitor usage at https://platform.openai.com/usage (or your organization's portal)
 - Set billing limits at https://platform.openai.com/account/limits
 - Estimated cost: $5-20 per document depending on complexity
 
@@ -656,6 +678,8 @@ docker-compose up -d sandbox-python
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `OPENAI_BASE_URL` | Custom OpenAI API endpoint (corporate proxy, Azure, etc.) | `https://api.openai.com/v1` |
+| `NEXT_PUBLIC_OPENAI_BASE_URL` | Custom OpenAI API endpoint (client-side) | `https://api.openai.com/v1` |
 | `GITHUB_TOKEN` | Personal access token for private repos | - |
 | `MODEL_DEFAULT` | Default OpenAI model | `gpt-4o` |
 | `MODEL_FAST` | Fast OpenAI model | `gpt-4o-mini` |

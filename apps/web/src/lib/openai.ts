@@ -65,17 +65,25 @@ import {
 
 // Initialize OpenAI client
 const getOpenAIClient = () => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || 
+  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY ||
                  (typeof window !== 'undefined' ? (window as any).__OPENAI_API_KEY__ : null);
-  
+
   if (!apiKey || apiKey === 'sk-...' || apiKey.includes('...')) {
     throw new Error('OpenAI API key not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file and restart the dev server.');
   }
-  
+
+  // Support custom base URL for corporate proxy, Azure OpenAI, or other OpenAI-compatible APIs
+  const baseURL = process.env.NEXT_PUBLIC_OPENAI_BASE_URL ||
+                  (typeof window !== 'undefined' ? (window as any).__OPENAI_BASE_URL__ : null);
+
   console.log('[OpenAI] Initializing client with API key:', apiKey.substring(0, 10) + '...');
-  
-  return new OpenAI({ 
+  if (baseURL) {
+    console.log('[OpenAI] Using custom base URL:', baseURL);
+  }
+
+  return new OpenAI({
     apiKey,
+    ...(baseURL && { baseURL }),
     dangerouslyAllowBrowser: true,
     timeout: 60000,
     maxRetries: 2,
@@ -1149,6 +1157,7 @@ async function generateBlock(
       globalDataEvidence: context.globalDataEvidence, // Pass pre-computed schema audits
       blockType: block.type, // Pass block type for tool selection
       onThinking: context.onThinking, // Pass thinking callback for UI display
+      codebaseSummary: context.codebaseSummary, // Pass global codebase context for full-system awareness
     };
     
     try {
@@ -2168,11 +2177,18 @@ async function generateCodebaseSummary(
 ): Promise<string> {
   console.log('[DocGen] Generating codebase summary...');
   
-  // Build a comprehensive view of the codebase
-  const fileList = codebase.files.slice(0, 20).map(f => `- ${f.path} (${f.category})`).join('\n');
-  
-  const keyFiles = codebase.files.slice(0, 10).map(f => 
-    `### ${f.path}\n\`\`\`${f.language}\n${f.content.slice(0, 1200)}\n\`\`\``
+  // Build a comprehensive view of the codebase - include MORE files to capture all components
+  const fileList = codebase.files.slice(0, 50).map(f => `- ${f.path} (${f.category})`).join('\n');
+
+  // Prioritize core/model files over utils/config for key file content
+  const prioritizedFiles = [...codebase.files]
+    .sort((a, b) => {
+      const priority = { core: 0, model: 1, api: 2, config: 3, utils: 4, data: 5, other: 6, test: 7, docs: 8 };
+      return (priority[a.category] || 6) - (priority[b.category] || 6);
+    });
+
+  const keyFiles = prioritizedFiles.slice(0, 15).map(f =>
+    `### ${f.path}\n\`\`\`${f.language}\n${f.content.slice(0, 1500)}\n\`\`\``
   ).join('\n\n');
   
   const chunkSummary = codeIntelligence 
@@ -2217,35 +2233,50 @@ ${codebase.readme?.slice(0, 2000) || 'No README'}
 
 ---
 
-Provide a summary with:
+Provide a COMPREHENSIVE summary with:
 
-1. **System Type**: What kind of system is this? Be VERY specific (e.g., "Next.js web application that calls OpenAI API", "Python ML training pipeline with PyTorch")
+1. **System Type**: What kind of system is this? Be VERY specific (e.g., "Next.js web application that calls OpenAI API", "Python ML training pipeline with PyTorch", "ECL calculation system with PD/LGD/EAD components")
 
 2. **Core Purpose**: What does it actually do? Base this on the actual code, not assumptions.
 
-3. **Key Technologies**: List ONLY technologies visible in package.json/requirements.txt/imports
+3. **ALL MAJOR COMPONENTS** (CRITICAL - List EVERY module/component you find):
+   - Identify EVERY major functional module, class, or component in the codebase
+   - For each component, note: name, purpose, and key files
+   - Example format:
+     * **Component A** (files: src/a.py, src/a_utils.py): Does X and Y
+     * **Component B** (files: src/b.py): Handles Z
+     * **Component C** (files: src/c/): Calculates W
 
-4. **Architecture**: Based on folder structure (e.g., "monorepo with apps/web and apps/api")
+   DO NOT SKIP ANY COMPONENTS. If there are 10 modules, list all 10.
 
-5. **CRITICAL - What this system DOES NOT have**:
+4. **Component Relationships**:
+   - How do the components connect to each other?
+   - What is the data/control flow between them?
+   - Example: "Component A feeds into B, which uses C for calculations"
+
+5. **Key Technologies**: List ONLY technologies visible in package.json/requirements.txt/imports
+
+6. **Architecture**: Based on folder structure (e.g., "monorepo with apps/web and apps/api")
+
+7. **CRITICAL - What this system DOES NOT have**:
    - Does it have neural network layer definitions? (nn.Module, tf.keras.layers, etc.)
    - Does it have training loops? (model.fit(), optimizer.step(), etc.)
    - Does it have custom model architectures?
    - Does it have ML evaluation code?
-   
-   If NO to these, state: "This system does NOT contain ML model code - no neural networks, no training loops, no custom architectures."
 
-6. **How AI is used**: If it uses OpenAI/Anthropic/etc APIs, state: "AI is used via [Provider] API calls, not local model training."
+   If NO to these, state: "This system does NOT contain ML model code."
 
-Be brutally honest. If this is a web app that calls APIs, say so. Don't make it sound like an ML system if it's not.`,
+8. **How AI is used**: If it uses OpenAI/Anthropic/etc APIs, state: "AI is used via [Provider] API calls, not local model training."
+
+**IMPORTANT**: The component list in section 3 must be EXHAUSTIVE. Every documentation section will reference this list to understand how it fits into the overall system. Missing components will result in incomplete documentation.`,
         },
       ],
       temperature: 0.3,
-      max_tokens: 1000,
+      max_tokens: 2000, // Increased to allow comprehensive component listing
     });
-    
+
     const summary = response.choices[0]?.message?.content || '';
-    console.log('[DocGen] Codebase summary generated:', summary.slice(0, 200) + '...');
+    console.log('[DocGen] Codebase summary generated:', summary.slice(0, 300) + '...');
     return summary;
   } catch (error) {
     console.error('[DocGen] Failed to generate codebase summary:', error);

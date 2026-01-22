@@ -73,6 +73,7 @@ export interface EvidenceAgentContext {
   blockType?: 'LLM_TEXT' | 'LLM_TABLE' | 'LLM_CHART'; // Block type for tool selection
   onThinking?: OnThinkingCallback; // Callback to emit thinking steps
   dataFileCache?: Map<string, CachedDataFile>; // OPTIMIZATION: Cache for data files
+  codebaseSummary?: string; // Global codebase context - architecture overview of the FULL system
 }
 
 export interface EvidenceAgentResult {
@@ -121,17 +122,36 @@ export interface GeneratedEvidenceSection {
 // EVIDENCE-FIRST PROMPTS
 // =============================================================================
 
-const EVIDENCE_SYSTEM_PROMPT = `You are a technical documentation expert that generates content using ONLY verified evidence from codebases.
+/**
+ * Build evidence system prompt with optional global codebase context
+ * The codebase summary provides architecture overview so each section understands the FULL system
+ */
+function buildEvidenceSystemPrompt(codebaseSummary?: string): string {
+  const globalContextSection = codebaseSummary
+    ? `## GLOBAL CODEBASE CONTEXT (READ THIS FIRST)
 
-## YOUR ROLE
+This section describes the FULL system architecture. Every section you write should reflect awareness of this complete picture.
+
+${codebaseSummary}
+
+---
+
+**IMPORTANT**: When writing about any component, explain how it relates to the overall system described above. Don't write about components in isolation.
+
+`
+    : '';
+
+  return `You are a technical documentation expert that generates content using ONLY verified evidence from codebases.
+
+${globalContextSection}## YOUR ROLE
 Follow the user's instructions exactly. Generate the specific content they request, in the style they request.
-
+${codebaseSummary ? '\n**Always show how the current section topic relates to the overall system architecture described above.**\n' : ''}
 ## EVIDENCE RULES
 1. **Use provided evidence**: Only include information from the evidence provided
 2. **Cite sources**: Reference files as [filename.ext] when making technical claims
 3. **No speculation**: Do NOT invent details, names, dates, or information not in evidence
 4. **Mark gaps**: If information is missing, use [EVIDENCE GAP: description]
-
+${codebaseSummary ? '5. **Show connections**: Explain how this section\'s topic connects to other system components\n' : ''}
 ## OUTPUT RULES
 1. **Follow instructions exactly**: If asked for an introduction, write an introduction. If asked for charts, generate charts.
 2. **Match requested style**: Do NOT add sections, narratives, or structure not requested
@@ -150,6 +170,10 @@ When the user asks you to create charts, plots, or visualizations:
 7. ONLY use tools - your text response should be EMPTY or contain ONLY the final answer after all charts are generated
 
 **If you write any text describing charts, you have FAILED your task.**`;
+}
+
+// Legacy constant for backward compatibility - use buildEvidenceSystemPrompt() instead
+const EVIDENCE_SYSTEM_PROMPT = buildEvidenceSystemPrompt();
 
 /**
  * Build inline data samples from data evidence for use in chart generation
@@ -766,8 +790,8 @@ export async function generateSectionWithEvidence(
   let generatedImages: Array<{ base64: string; mimeType: string; description?: string }> = []; // Support multiple charts
   let executedCode: string | undefined;
   
-  // Build system prompt (charts are handled by the early return above, so this is for text/table blocks)
-  const systemPrompt = EVIDENCE_SYSTEM_PROMPT;
+  // Build system prompt with global codebase context (charts are handled by the early return above, so this is for text/table blocks)
+  const systemPrompt = buildEvidenceSystemPrompt(ctx.codebaseSummary);
 
   // For text/table blocks, use auto tool choice if tools are available
   const initialToolChoice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;

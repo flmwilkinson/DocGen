@@ -34,7 +34,7 @@ export interface AgentMemory {
 
 // Thinking step for UI display
 export interface ThinkingStep {
-  type: 'think' | 'search' | 'observe' | 'draft' | 'verify' | 'refine' | 'tool' | 'complete';
+  type: 'think' | 'search' | 'observe' | 'draft' | 'verify' | 'refine' | 'tool' | 'complete' | 'evidence';
   message: string;
   details?: string;
   iteration?: number;

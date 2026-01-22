@@ -198,27 +198,42 @@ export default function ProjectPage() {
           console.log('[UI] Progress update:', progress, message);
           setGenerationProgress(progress);
           setGenerationMessage(message);
-          updateRun(runId, { progress: Math.round(progress) });
+          // Store both progress and status message for runs page display
+          updateRun(runId, { progress: Math.round(progress), statusMessage: message });
         },
         (section) => {
           // Stream completed sections to UI in real-time
+          // This replaces any partial section created by onBlockComplete
           console.log('[UI] Section completed, streaming to document:', section.title);
 
-          // Get current run state
           const currentState = useProjectsStore.getState();
-          const currentProject = currentState.projects.find(p => p.id === projectId);
-          const currentRun = currentProject?.runs.find(r => r.id === runId);
+          const currentRun = currentState.runs.find(r => r.id === runId);
 
           if (currentRun) {
-            // Append new section to existing sections
-            const updatedSections = [...(currentRun.sections || []), section];
+            const existingSections = currentRun.sections || [];
 
-            updateRun(runId, {
-              sections: updatedSections,
-              progress: Math.round(15 + (updatedSections.length / template.sections.length) * 70),
+            // CRITICAL: Always filter out any existing section with the same ID to prevent duplicates
+            // This handles race conditions where onBlockComplete may have added a partial section
+            const sectionsWithoutDuplicate = existingSections.filter(s => s.id !== section.id);
+            const updatedSections = [...sectionsWithoutDuplicate, section];
+
+            // Extra safety: ensure no duplicate IDs in final array
+            const seenIds = new Set<string>();
+            const deduplicatedSections = updatedSections.filter(s => {
+              if (seenIds.has(s.id)) {
+                console.warn(`[UI] ⚠️ Removing duplicate section: ${s.id}`);
+                return false;
+              }
+              seenIds.add(s.id);
+              return true;
             });
 
-            console.log(`[UI] ✅ Section "${section.title}" streamed to UI (${updatedSections.length}/${template.sections.length} sections complete)`);
+            updateRun(runId, {
+              sections: deduplicatedSections,
+              progress: Math.round(15 + (deduplicatedSections.length / template.sections.length) * 70),
+            });
+
+            console.log(`[UI] ✅ Section "${section.title}" streamed to UI (${deduplicatedSections.length}/${template.sections.length} sections complete)`);
           }
         },
         {
@@ -226,6 +241,55 @@ export default function ProjectPage() {
           cachedKnowledgeBase: project.cachedKnowledgeBase,
           cachedCodeIntelligence: project.cachedCodeIntelligence,
           updateCache: updateProjectCache,
+          // Stream individual blocks as they complete (don't wait for all blocks)
+          onBlockComplete: (sectionId, sectionTitle, block, blockIndex, totalBlocks) => {
+            console.log(`[UI] 📤 Block "${block.title}" completed (${blockIndex + 1}/${totalBlocks}), streaming to document`);
+
+            const currentState = useProjectsStore.getState();
+            const currentRun = currentState.runs.find(r => r.id === runId);
+
+            if (currentRun) {
+              // Find or create the section
+              const existingSections = currentRun.sections || [];
+              let sectionIndex = existingSections.findIndex(s => s.id === sectionId);
+
+              let updatedSections;
+              if (sectionIndex === -1) {
+                // Create new section with this block
+                // First filter out any stale sections with same ID (race condition protection)
+                const filteredSections = existingSections.filter(s => s.id !== sectionId);
+                updatedSections = [
+                  ...filteredSections,
+                  {
+                    id: sectionId,
+                    title: sectionTitle,
+                    blocks: [block],
+                    subsections: [],
+                  }
+                ];
+              } else {
+                // Add block to existing section
+                updatedSections = existingSections.map((s, i) => {
+                  if (i === sectionIndex) {
+                    // Check if block already exists (avoid duplicates)
+                    const blockExists = s.blocks.some(b => b.id === block.id);
+                    if (blockExists) return s;
+                    return {
+                      ...s,
+                      blocks: [...s.blocks, block],
+                    };
+                  }
+                  return s;
+                });
+              }
+
+              updateRun(runId, {
+                sections: updatedSections,
+              });
+
+              console.log(`[UI] ✅ Block "${block.title}" streamed to UI`);
+            }
+          },
         }
       );
 

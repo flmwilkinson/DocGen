@@ -67,6 +67,7 @@ export interface GeneratedBlock {
   generatedImage?: {
     base64: string;
     mimeType: string;
+    description?: string;
   }; // Backward compatibility - last chart
   generatedImages?: Array<{
     base64: string;
@@ -99,6 +100,7 @@ export interface GenerationRun {
   templateName: string;
   status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   progress: number;
+  statusMessage?: string; // Current generation status for UI display
   createdAt: Date;
   completedAt?: Date;
   // Generated content

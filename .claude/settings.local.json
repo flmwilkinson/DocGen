@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Stop-Process -Id 39492 -Force\")",
+      "Bash(cut:*)",
+      "Bash(powershell -Command \"Stop-Process -Id 52656 -Force\")"
+    ]
+  }
+}

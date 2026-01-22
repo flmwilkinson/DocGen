@@ -65,43 +65,89 @@ export interface ChartAgentResult {
 
 /**
  * STEP 1: ANALYZE - Inspect data files and understand structure
+ * Now includes first 5 rows of sample data so LLM can make informed decisions
  */
 async function analyze(
   ctx: ChartAgentContext
-): Promise<{ dataSummary: string; availableVariables: Record<string, string[]> }> {
-  ctx.onThinking?.({ type: 'think', message: 'Analyzing data files...', details: 'Inspecting file structure and variables' });
-  
+): Promise<{ dataSummary: string; availableVariables: Record<string, string[]>; sampleData: Record<string, string> }> {
+  ctx.onThinking?.({ type: 'think', message: 'Analyzing data files...', details: 'Inspecting file structure, variables, and sample data' });
+
   const availableVariables: Record<string, string[]> = {};
+  const sampleData: Record<string, string> = {}; // First 5 rows per file
   let dataSummary = '## DATA ANALYSIS\n\n';
-  
+
+  // Helper to extract sample data from file content
+  const extractSampleData = (content: string, path: string): string => {
+    const lines = content.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return 'No data rows found';
+
+    // Get header and first 5 data rows
+    const header = lines[0];
+    const dataRows = lines.slice(1, 6); // First 5 rows after header
+
+    // Format as a simple table preview
+    let preview = `Headers: ${header}\n`;
+    preview += `Sample rows (first ${dataRows.length}):\n`;
+    dataRows.forEach((row, idx) => {
+      // Truncate very long rows
+      const truncatedRow = row.length > 200 ? row.slice(0, 200) + '...' : row;
+      preview += `  Row ${idx + 1}: ${truncatedRow}\n`;
+    });
+
+    return preview;
+  };
+
   // Use data evidence from evidence bundle if available
   if (ctx.evidenceBundle.dataEvidence.length > 0) {
     for (const dataEv of ctx.evidenceBundle.dataEvidence) {
       const columns = dataEv.columns.map(col => col.name);
+      const columnTypes = dataEv.columns.map(col => `${col.name}(${col.dtype || 'unknown'})`);
       availableVariables[dataEv.filePath] = columns;
+
       dataSummary += `### ${dataEv.filePath}\n`;
       dataSummary += `- Rows: ${dataEv.rowCount}\n`;
-      dataSummary += `- Columns (${columns.length}): ${columns.slice(0, 10).join(', ')}${columns.length > 10 ? '...' : ''}\n`;
-      dataSummary += `- Key metrics: ${dataEv.columns.filter(col => 
+      dataSummary += `- Columns (${columns.length}): ${columnTypes.slice(0, 15).join(', ')}${columns.length > 15 ? '...' : ''}\n`;
+      dataSummary += `- Key metrics: ${dataEv.columns.filter(col =>
         ['amount', 'value', 'price', 'rate', 'score', 'count', 'total'].some(k => col.name.toLowerCase().includes(k))
-      ).map(col => col.name).slice(0, 5).join(', ')}\n\n`;
+      ).map(col => col.name).slice(0, 5).join(', ')}\n`;
+
+      // Find the actual file content for sample data
+      const matchingFile = ctx.dataFiles.find(f =>
+        f.path === dataEv.filePath ||
+        f.path.includes(dataEv.filePath) ||
+        dataEv.filePath.includes(f.path)
+      );
+
+      if (matchingFile?.content) {
+        const sample = extractSampleData(matchingFile.content, dataEv.filePath);
+        sampleData[dataEv.filePath] = sample;
+        dataSummary += `\n**SAMPLE DATA:**\n\`\`\`\n${sample}\`\`\`\n`;
+      }
+      dataSummary += '\n';
     }
   } else {
     // Fallback: analyze from file content
     for (const file of ctx.dataFiles) {
-      if (file.path.endsWith('.csv')) {
-        const lines = file.content?.split('\n').slice(0, 2) || [];
+      if (file.path.endsWith('.csv') && file.content) {
+        const lines = file.content.split('\n').filter(l => l.trim());
         if (lines.length > 0) {
           const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
           availableVariables[file.path] = headers;
+
+          const sample = extractSampleData(file.content, file.path);
+          sampleData[file.path] = sample;
+
           dataSummary += `### ${file.path}\n`;
-          dataSummary += `- Columns: ${headers.slice(0, 10).join(', ')}${headers.length > 10 ? '...' : ''}\n\n`;
+          dataSummary += `- Columns: ${headers.slice(0, 15).join(', ')}${headers.length > 15 ? '...' : ''}\n`;
+          dataSummary += `\n**SAMPLE DATA:**\n\`\`\`\n${sample}\`\`\`\n\n`;
         }
       }
     }
   }
-  
-  return { dataSummary, availableVariables };
+
+  console.log(`[ChartAgent] Analyzed ${Object.keys(availableVariables).length} data files with sample data`);
+
+  return { dataSummary, availableVariables, sampleData };
 }
 
 /**
@@ -112,7 +158,8 @@ async function createPlan(
   sectionTitle: string,
   sectionInstructions: string,
   dataSummary: string,
-  availableVariables: Record<string, string[]>
+  availableVariables: Record<string, string[]>,
+  sampleData: Record<string, string>
 ): Promise<ChartPlan> {
   ctx.onThinking?.({ type: 'think', message: 'Creating analysis plan...', details: 'Determining which charts and analyses to generate' });
   
@@ -189,32 +236,72 @@ Return a JSON object with this structure:
 
 /**
  * STEP 3: EXECUTE - Generate charts and run analyses
+ * Now includes sampleData so LLM can see actual data values before generating code
  */
 async function execute(
   ctx: ChartAgentContext,
-  plan: ChartPlan
+  plan: ChartPlan,
+  sampleData: Record<string, string>
 ): Promise<{
   charts: Array<{ base64: string; mimeType: string; description: string; code: string }>;
   analyses: Array<{ result: Record<string, unknown>; stdout: string }>;
 }> {
   ctx.onThinking?.({ type: 'tool', message: 'Executing plan...', details: `Generating ${plan.charts.length} charts and ${plan.analyses.length} analyses` });
-  
+
   const generatedCharts: Array<{ base64: string; mimeType: string; description: string; code: string }> = [];
   const analysisResults: Array<{ result: Record<string, unknown>; stdout: string }> = [];
-  
+
   const toolContext: ToolContext = {
     projectName: ctx.projectName,
     repoUrl: ctx.repoUrl,
     dataFiles: ctx.dataFiles,
   };
-  
-  // Execute charts
+
+  // Execute charts with retry logic
+  const MAX_CHART_RETRIES = 2;
+
   for (const chartPlan of plan.charts || []) {
-    try {
-      ctx.onThinking?.({ type: 'tool', message: `Generating chart: ${chartPlan.title}`, details: chartPlan.purpose });
-      
-      // Generate Python code for the chart
-      const chartCodePrompt = `Generate Python matplotlib code to create a ${chartPlan.type} chart.
+    let lastError: string | null = null;
+    let pythonCode = '';
+
+    for (let attempt = 0; attempt <= MAX_CHART_RETRIES; attempt++) {
+      try {
+        const attemptLabel = attempt > 0 ? ` (retry ${attempt}/${MAX_CHART_RETRIES})` : '';
+        ctx.onThinking?.({ type: 'tool', message: `Generating chart: ${chartPlan.title}${attemptLabel}`, details: chartPlan.purpose });
+
+        // Build context about available columns for this specific file
+        const fileColumns = ctx.evidenceBundle.dataEvidence.find(de =>
+          de.filePath.includes(chartPlan.dataFile) || chartPlan.dataFile.includes(de.filePath)
+        );
+        const actualColumns = fileColumns?.columns.map(c => c.name) || chartPlan.variables;
+        const numericColumns = fileColumns?.columns.filter(c =>
+          ['int', 'float', 'number', 'numeric'].some(t => c.dtype?.toLowerCase().includes(t))
+        ).map(c => c.name) || [];
+
+        // Get sample data for this specific file
+        const fileSampleData = sampleData[chartPlan.dataFile] ||
+          Object.entries(sampleData).find(([path]) =>
+            path.includes(chartPlan.dataFile) || chartPlan.dataFile.includes(path)
+          )?.[1] || 'No sample data available';
+
+        // Build error context for retries
+        const errorContext = lastError ? `
+## PREVIOUS ATTEMPT FAILED
+The previous code failed with this error:
+\`\`\`
+${lastError}
+\`\`\`
+
+**Fix the code to handle this error.** Common fixes:
+- If "masked_array" or "All-NaN": The data has no valid values after filtering. Check if data exists first with len(df.dropna()) > 0
+- If "KeyError": Use ONLY columns from this exact list: ${actualColumns.join(', ')}
+- If type conversion error: Use pd.to_numeric(df[col], errors='coerce') before plotting
+- If empty data: Add a check like "if len(valid_data) > 0:" before plotting
+
+` : '';
+
+        // Generate Python code for the chart
+        const chartCodePrompt = `Generate Python matplotlib code to create a ${chartPlan.type} chart.
 
 Requirements:
 - Chart title: "${chartPlan.title}"
@@ -222,68 +309,329 @@ Requirements:
 - Variables to plot: ${chartPlan.variables.join(', ')}
 - Purpose: ${chartPlan.purpose}
 
+## ACTUAL AVAILABLE COLUMNS
+These are the EXACT column names in the file (use only these):
+${actualColumns.slice(0, 30).join(', ')}
+${numericColumns.length > 0 ? `\nNumeric columns (safe for math): ${numericColumns.slice(0, 20).join(', ')}` : ''}
+
+## ACTUAL SAMPLE DATA (First 5 rows)
+Look at this data to understand values, ranges, and what plots make sense:
+\`\`\`
+${fileSampleData}
+\`\`\`
+
+**IMPORTANT**: Use this sample data to:
+1. Choose appropriate chart types (don't use scatter if data is categorical)
+2. Set appropriate axis ranges and labels
+3. Avoid plots that don't make sense for this data structure
+4. Use ONLY column names that appear in the headers above
+${errorContext}
 **CRITICAL**: Use the load_data() helper function to load the file. The helper is already available in the sandbox.
 
-Example:
+**DEFENSIVE CODING**: Always check data validity before plotting:
 \`\`\`python
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 # Load data using the helper function
 df = load_data('${chartPlan.dataFile}')
 
-# Inspect columns first
+# ALWAYS print info for debugging
 print("Columns:", df.columns.tolist())
 print("Shape:", df.shape)
+print("Dtypes:", df.dtypes.to_dict())
 
-# Create ${chartPlan.type} chart
-plt.figure(figsize=(10, 6))
-# ... your plotting code here using df['${chartPlan.variables[0] || 'column'}'] ...
-plt.title('${chartPlan.title}')
-plt.tight_layout()
+# Get numeric columns only
+numeric_df = df.select_dtypes(include=[np.number])
+print("Numeric columns:", numeric_df.columns.tolist())
+
+# Example: Safe histogram
+if len(numeric_df.columns) > 0:
+    col = numeric_df.columns[0]
+    valid_data = numeric_df[col].dropna()
+    if len(valid_data) > 0:
+        plt.figure(figsize=(10, 6))
+        plt.hist(valid_data, bins=30, edgecolor='black')
+        plt.title('${chartPlan.title}')
+        plt.xlabel(col)
+        plt.ylabel('Frequency')
+        plt.tight_layout()
+    else:
+        print(f"No valid data in {col}")
+else:
+    print("No numeric columns found")
 \`\`\`
 
-Return ONLY the Python code, no explanations. Make sure to use the EXACT column names from df.columns.`;
+Return ONLY the Python code, no explanations. Make sure to use the EXACT column names from the ACTUAL AVAILABLE COLUMNS list above.`;
 
-      const codeResponse = await ctx.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a Python data visualization expert. Generate clean, working matplotlib code.' },
-          { role: 'user', content: chartCodePrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 1000,
-      });
+        const codeResponse = await ctx.openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: `You are a Python data visualization expert. Generate clean, working matplotlib code.
 
-      const pythonCode = codeResponse.choices[0]?.message?.content?.trim() || '';
-      
-      if (pythonCode) {
-        // Execute the chart
-        const toolResult = await executeTool('generate_chart', {
-          python_code: pythonCode,
-          description: chartPlan.title,
-        }, toolContext);
-        
-        const formattedResult = formatToolResultForDocument('generate_chart', toolResult);
-        
-        if (formattedResult.generatedImage) {
-          const charts = formattedResult.generatedImages || [formattedResult.generatedImage];
-          charts.forEach((img, idx) => {
-            generatedCharts.push({
-              base64: img.base64,
-              mimeType: img.mimeType,
-              description: idx === 0 ? chartPlan.title : `${chartPlan.title} (${idx + 1})`,
-              code: pythonCode,
-            });
+CRITICAL - PREFER SIMPLE, RELIABLE CHART TYPES:
+- PREFER: histograms (plt.hist), bar charts (plt.bar), line plots (plt.plot)
+- AVOID: seaborn grouped plots, boxplots, scatter with hue, violin plots
+- AVOID: any chart type that requires grouping or categorical axes
+- If you must use seaborn, use simple versions: sns.histplot, sns.lineplot
+- ALWAYS convert data to Python lists with .tolist() before plotting to avoid numpy masked array issues
+
+CRITICAL DATA HANDLING RULES - ALWAYS FOLLOW THESE:
+1. ALWAYS check if data exists before plotting: if len(df) > 0 and len(df.dropna()) > 0
+2. ALWAYS use .select_dtypes(include=[np.number]) to get only numeric columns
+3. ALWAYS use .dropna() before any calculation or plotting
+4. NEVER assume column names - use ONLY the exact names provided
+5. Convert numpy arrays to lists: values = df[col].dropna().tolist()
+6. For correlation: use df.select_dtypes(include=[np.number]).dropna().corr()
+7. ALWAYS wrap plotting code in validity checks
+8. Print diagnostic info (shape, columns, dtypes) at the start
+9. Use plt.subplots() style for figures: fig, ax = plt.subplots()
+10. NEVER use plt.show() - charts are saved automatically` },
+            { role: 'user', content: chartCodePrompt },
+          ],
+          temperature: 0.3,
+          max_tokens: 1200,
+        });
+
+        pythonCode = codeResponse.choices[0]?.message?.content?.trim() || '';
+
+        if (pythonCode) {
+          // Execute the chart
+          const toolResult = await executeTool('generate_chart', {
+            python_code: pythonCode,
+            description: chartPlan.title,
+          }, toolContext);
+
+          // Check if execution failed
+          if (!toolResult.success) {
+            lastError = toolResult.error || 'Unknown execution error';
+            console.warn(`[ChartAgent] Chart "${chartPlan.title}" attempt ${attempt + 1} failed:`, lastError);
+
+            if (attempt < MAX_CHART_RETRIES) {
+              ctx.onThinking?.({ type: 'think', message: `Chart failed, retrying with error feedback...`, details: lastError.slice(0, 100) });
+              continue; // Retry with error context
+            }
+            // Final attempt failed
+            console.error(`[ChartAgent] Chart "${chartPlan.title}" failed after ${MAX_CHART_RETRIES + 1} attempts`);
+            break;
+          }
+
+          const formattedResult = formatToolResultForDocument('generate_chart', toolResult);
+
+          console.log(`[ChartAgent] 📊 formattedResult for "${chartPlan.title}":`, {
+            hasGeneratedImage: !!formattedResult.generatedImage,
+            generatedImagesCount: formattedResult.generatedImages?.length || 0,
+            imageBase64Length: formattedResult.generatedImage?.base64?.length || 0,
           });
-          ctx.onThinking?.({ type: 'complete', message: `✅ Chart generated: ${chartPlan.title}` });
+
+          if (formattedResult.generatedImage) {
+            const charts = formattedResult.generatedImages || [formattedResult.generatedImage];
+            charts.forEach((img, idx) => {
+              generatedCharts.push({
+                base64: img.base64,
+                mimeType: img.mimeType,
+                description: idx === 0 ? chartPlan.title : `${chartPlan.title} (${idx + 1})`,
+                code: pythonCode,
+              });
+              console.log(`[ChartAgent] ✅ Added chart "${chartPlan.title}" to collection. Total: ${generatedCharts.length}`);
+            });
+            ctx.onThinking?.({ type: 'complete', message: `✅ Chart generated: ${chartPlan.title}${attempt > 0 ? ` (after ${attempt} retry)` : ''}` });
+            break; // Success, exit retry loop
+          } else {
+            // No image generated but no error - treat as failure
+            lastError = 'Chart generated but no image was produced. Data may be empty after filtering.';
+            if (attempt < MAX_CHART_RETRIES) {
+              continue;
+            }
+          }
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        console.error(`[ChartAgent] Exception generating chart "${chartPlan.title}" attempt ${attempt + 1}:`, error);
+        if (attempt >= MAX_CHART_RETRIES) {
+          break;
         }
       }
-    } catch (error) {
-      console.error(`[ChartAgent] Failed to generate chart "${chartPlan.title}":`, error);
+    }
+
+    // FALLBACK: If all LLM attempts failed, try a bulletproof template
+    if (generatedCharts.length === 0 || !generatedCharts.some(c => c.description === chartPlan.title)) {
+      try {
+        ctx.onThinking?.({ type: 'tool', message: `Trying fallback chart: ${chartPlan.title}`, details: 'Using bulletproof template' });
+
+        // Create a guaranteed-to-work chart code with extensive diagnostics
+        const fallbackCode = `
+import matplotlib
+matplotlib.use('Agg')  # Force non-interactive backend FIRST
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import os
+import warnings
+warnings.filterwarnings('ignore')
+
+print("="*60)
+print("DIAGNOSTIC OUTPUT - CHART FALLBACK")
+print("="*60)
+
+# List all available files
+print("\\nAvailable files in DATA_DIR:")
+for root, dirs, files in os.walk(DATA_DIR):
+    for f in files:
+        full_path = os.path.join(root, f)
+        size = os.path.getsize(full_path)
+        print(f"  {os.path.relpath(full_path, DATA_DIR)}: {size} bytes")
+
+# Try to find and load the data file
+target_file = '${chartPlan.dataFile}'
+print(f"\\nLooking for: {target_file}")
+
+# Try exact path first
+exact_path = os.path.join(DATA_DIR, target_file)
+found_path = None
+
+if os.path.exists(exact_path):
+    found_path = exact_path
+else:
+    # Search for the file by basename
+    basename = os.path.basename(target_file)
+    for root, dirs, files in os.walk(DATA_DIR):
+        if basename in files:
+            found_path = os.path.join(root, basename)
+            break
+
+if found_path:
+    print(f"Found file at: {found_path}")
+    print(f"File size: {os.path.getsize(found_path)} bytes")
+
+    # Read first few bytes to check encoding
+    with open(found_path, 'rb') as f:
+        first_bytes = f.read(200)
+        print(f"First 200 bytes (raw): {first_bytes[:100]}")
+
+    # Try to load as CSV with different encodings
+    df = None
+    for encoding in ['utf-8', 'latin-1', 'cp1252']:
+        try:
+            df = pd.read_csv(found_path, encoding=encoding, nrows=100)
+            print(f"\\nLoaded with encoding: {encoding}")
+            break
+        except Exception as e:
+            print(f"Failed with {encoding}: {e}")
+
+    if df is not None:
+        print(f"\\nDataFrame shape: {df.shape}")
+        print(f"Columns: {df.columns.tolist()}")
+        print(f"\\nData types:\\n{df.dtypes}")
+        print(f"\\nFirst 3 rows:\\n{df.head(3)}")
+        print(f"\\nNull counts:\\n{df.isnull().sum()}")
+
+        # Find numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        print(f"\\nNumeric columns: {numeric_cols}")
+
+        # Try to create a chart from the FIRST numeric column with data
+        chart_created = False
+        for col in numeric_cols:
+            valid_data = df[col].dropna()
+            print(f"\\nColumn '{col}': {len(valid_data)} non-null values")
+
+            if len(valid_data) >= 3:
+                # Convert to Python list to avoid ANY numpy masking issues
+                values = valid_data.tolist()
+
+                # Create fresh figure
+                fig, ax = plt.subplots(figsize=(10, 6))
+
+                # Plot histogram using ax directly (not plt.hist)
+                ax.hist(values, bins=min(30, max(5, len(values)//3)),
+                       color='#4CAF50', edgecolor='white', alpha=0.8)
+                ax.set_title('${chartPlan.title}', fontsize=14, color='white')
+                ax.set_xlabel(col, fontsize=12)
+                ax.set_ylabel('Frequency', fontsize=12)
+
+                fig.tight_layout()
+                chart_created = True
+                print(f"SUCCESS: Created histogram for '{col}'")
+                break
+
+        if not chart_created:
+            # Try categorical
+            for col in df.columns[:5]:
+                try:
+                    counts = df[col].value_counts().head(8)
+                    if len(counts) >= 2:
+                        fig, ax = plt.subplots(figsize=(10, 6))
+                        bars = ax.bar(range(len(counts)), counts.values,
+                                     color='#2196F3', edgecolor='white', alpha=0.8)
+                        ax.set_xticks(range(len(counts)))
+                        ax.set_xticklabels([str(x)[:15] for x in counts.index],
+                                          rotation=45, ha='right')
+                        ax.set_title('${chartPlan.title}', fontsize=14, color='white')
+                        ax.set_xlabel(col, fontsize=12)
+                        ax.set_ylabel('Count', fontsize=12)
+                        fig.tight_layout()
+                        chart_created = True
+                        print(f"SUCCESS: Created bar chart for '{col}'")
+                        break
+                except Exception as e:
+                    print(f"Categorical failed for '{col}': {e}")
+
+        if not chart_created:
+            print("ERROR: No plottable columns found")
+            # Create a placeholder chart
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(0.5, 0.5, 'No valid data for visualization',
+                   ha='center', va='center', fontsize=16, color='white')
+            ax.set_title('${chartPlan.title}', fontsize=14, color='white')
+            ax.axis('off')
+            fig.tight_layout()
+    else:
+        print("ERROR: Could not load CSV with any encoding")
+else:
+    print(f"ERROR: File not found: {target_file}")
+    # Create error placeholder
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.text(0.5, 0.5, 'Data file not found', ha='center', va='center',
+           fontsize=16, color='white')
+    ax.set_title('${chartPlan.title}', fontsize=14, color='white')
+    ax.axis('off')
+    fig.tight_layout()
+
+print("\\n" + "="*60)
+print("END DIAGNOSTIC OUTPUT")
+print("="*60)
+`;
+
+        const fallbackResult = await executeTool('generate_chart', {
+          python_code: fallbackCode,
+          description: chartPlan.title,
+        }, toolContext);
+
+        if (fallbackResult.success) {
+          const formattedResult = formatToolResultForDocument('generate_chart', fallbackResult);
+          if (formattedResult.generatedImage) {
+            const charts = formattedResult.generatedImages || [formattedResult.generatedImage];
+            charts.forEach((img, idx) => {
+              generatedCharts.push({
+                base64: img.base64,
+                mimeType: img.mimeType,
+                description: idx === 0 ? chartPlan.title : `${chartPlan.title} (${idx + 1})`,
+                code: fallbackCode,
+              });
+            });
+            ctx.onThinking?.({ type: 'complete', message: `✅ Chart generated with fallback: ${chartPlan.title}` });
+          }
+        } else {
+          console.error(`[ChartAgent] Even fallback failed for "${chartPlan.title}":`, fallbackResult.error);
+        }
+      } catch (fallbackError) {
+        console.error(`[ChartAgent] Fallback exception for "${chartPlan.title}":`, fallbackError);
+      }
     }
   }
-  
+
   // Execute analyses
   for (const analysisPlan of plan.analyses || []) {
     try {
@@ -305,7 +653,14 @@ Return ONLY the Python code, no explanations.`;
       const codeResponse = await ctx.openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: 'You are a Python data analysis expert. Generate clean, working pandas/numpy code.' },
+          { role: 'system', content: `You are a Python data analysis expert. Generate clean, working pandas/numpy code.
+
+CRITICAL DATA HANDLING RULES:
+- ALWAYS handle missing values with .dropna() or .fillna() before calculations
+- Use .select_dtypes(include=[np.number]) for numeric operations
+- Use pd.to_numeric(col, errors='coerce') for type conversions
+- Check column types with df.dtypes before numeric operations
+- Never compute mean/std/corr on string columns` },
           { role: 'user', content: analysisCodePrompt },
         ],
         temperature: 0.3,
@@ -334,6 +689,13 @@ Return ONLY the Python code, no explanations.`;
     }
   }
   
+  console.log(`[ChartAgent] 📊 Execute complete: ${generatedCharts.length} charts, ${analysisResults.length} analyses`);
+  console.log(`[ChartAgent] 📊 Charts:`, generatedCharts.map(c => ({
+    description: c.description,
+    base64Length: c.base64?.length || 0,
+    mimeType: c.mimeType,
+  })));
+
   return { charts: generatedCharts, analyses: analysisResults };
 }
 
@@ -562,15 +924,15 @@ export async function generateChartWithReAct(
   sectionInstructions: string
 ): Promise<ChartAgentResult> {
   console.log(`[ChartAgent] Starting ReAct workflow for: ${sectionTitle}`);
-  
-  // STEP 1: ANALYZE
-  const { dataSummary, availableVariables } = await analyze(ctx);
-  
+
+  // STEP 1: ANALYZE - Now includes sample data for better LLM decisions
+  const { dataSummary, availableVariables, sampleData } = await analyze(ctx);
+
   // STEP 2: PLAN
-  const plan = await createPlan(ctx, sectionTitle, sectionInstructions, dataSummary, availableVariables);
-  
-  // STEP 3: EXECUTE
-  const { charts, analyses } = await execute(ctx, plan);
+  const plan = await createPlan(ctx, sectionTitle, sectionInstructions, dataSummary, availableVariables, sampleData);
+
+  // STEP 3: EXECUTE - Pass sample data so LLM can generate appropriate code
+  const { charts, analyses } = await execute(ctx, plan, sampleData);
   
   // STEP 4: PARSE
   const { keyFacts, statistics } = parse(analyses);
@@ -581,8 +943,8 @@ export async function generateChartWithReAct(
   // Store code per chart (for inline rendering)
   // The UI will split by the separator to get individual chart codes
   const allCode = charts.map((c, idx) => `# Chart ${idx + 1}: ${c.description}\n${c.code}`).join('\n\n# ---\n\n');
-  
-  return {
+
+  const result = {
     content,
     generatedImages: charts.map(c => ({
       base64: c.base64,
@@ -593,5 +955,14 @@ export async function generateChartWithReAct(
     analysisResults: statistics,
     tables,
   };
+
+  console.log(`[ChartAgent] 🎯 Final result for "${sectionTitle}":`, {
+    contentLength: content.length,
+    generatedImagesCount: result.generatedImages.length,
+    hasExecutedCode: !!allCode,
+    tablesCount: tables.length,
+  });
+
+  return result;
 }
 

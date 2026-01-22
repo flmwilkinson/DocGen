@@ -554,32 +554,90 @@ export async function generateSectionWithEvidence(
     );
     
     // Extract data files for chart agent
+    // IMPORTANT: Check cache first to avoid relying on sandbox URL fetching
     const dataFiles: Array<{ path: string; content?: string; url?: string }> = [];
     const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
+
+    // Helper to build GitHub raw URL
+    function buildGitHubRawUrlForChart(repoUrl: string, filePath: string): string {
+      const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+      if (!match) return '';
+      const [, owner, repo] = match;
+      const repoName = repo.replace(/\.git$/, '').split('/')[0];
+      return `https://raw.githubusercontent.com/${owner}/${repoName}/main/${filePath}`;
+    }
+
+    let urlCount = 0;
+    let contentCount = 0;
+    let cachedCount = 0;
+
     for (const file of ctx.allFiles) {
       if (dataFilePatterns.test(file.path)) {
-        const isTruncated = file.content.includes('[TRUNCATED:') || 
+        const isTruncated = file.content.includes('[TRUNCATED:') ||
                            (file.content.split('\n').length <= 11 && file.content.length < 50000);
-        
+
         if (isTruncated && ctx.repoUrl) {
-          const match = ctx.repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-          if (match) {
-            const [, owner, repo] = match;
-            const repoName = repo.replace(/\.git$/, '').split('/')[0];
+          // Check cache FIRST before falling back to URL
+          const cached = ctx.dataFileCache?.get(file.path);
+          if (cached) {
+            console.log(`[ChartAgent] ✅ Using cached content for ${file.path}`);
             dataFiles.push({
               path: file.path,
-              url: `https://raw.githubusercontent.com/${owner}/${repoName}/main/${file.path}`,
+              content: cached.content,
             });
+            cachedCount++;
+            contentCount++;
+          } else {
+            const githubUrl = buildGitHubRawUrlForChart(ctx.repoUrl, file.path);
+            if (githubUrl) {
+              console.log(`[ChartAgent] ⚠️ File ${file.path} is truncated, using GitHub URL (may fail if sandbox has no network)`);
+              dataFiles.push({
+                path: file.path,
+                url: githubUrl,
+              });
+              urlCount++;
+            }
           }
         } else if (file.content) {
           dataFiles.push({
             path: file.path,
             content: file.content,
           });
+          contentCount++;
         }
       }
     }
-    
+
+    console.log(`[ChartAgent] Prepared ${dataFiles.length} data files: ${contentCount} with content (${cachedCount} cached), ${urlCount} from GitHub URL`);
+
+    // PRE-FETCH: If any files have URLs instead of content, fetch them now
+    // This is critical because the sandbox may not have network access
+    if (urlCount > 0) {
+      console.log(`[ChartAgent] 🌐 Pre-fetching ${urlCount} files from GitHub URLs...`);
+      for (const file of dataFiles) {
+        if (file.url && !file.content) {
+          try {
+            const response = await fetch(file.url, {
+              signal: AbortSignal.timeout(30000), // 30s timeout
+            });
+            if (response.ok) {
+              const content = await response.text();
+              file.content = content;
+              delete file.url; // Remove URL since we have content now
+              console.log(`[ChartAgent] ✅ Fetched ${file.path}: ${content.length} bytes`);
+            } else {
+              console.warn(`[ChartAgent] ⚠️ Failed to fetch ${file.path}: ${response.status}`);
+            }
+          } catch (error) {
+            console.warn(`[ChartAgent] ⚠️ Error fetching ${file.path}:`, error instanceof Error ? error.message : error);
+          }
+        }
+      }
+      const stillUrlCount = dataFiles.filter(f => f.url && !f.content).length;
+      const nowContentCount = dataFiles.filter(f => f.content).length;
+      console.log(`[ChartAgent] After pre-fetch: ${nowContentCount} with content, ${stillUrlCount} still need URL fetch`);
+    }
+
     // Use ReAct chart agent
     const chartResult = await generateChartWithReAct(
       {
@@ -594,12 +652,31 @@ export async function generateSectionWithEvidence(
       sectionTitle,
       sectionInstructions
     );
-    
+
+    console.log(`[ChartAgent] 📥 Received result from chart-react-agent:`, {
+      contentLength: chartResult.content?.length || 0,
+      generatedImagesCount: chartResult.generatedImages?.length || 0,
+      hasExecutedCode: !!chartResult.executedCode,
+      tablesCount: chartResult.tables?.length || 0,
+    });
+
     // Convert to EvidenceAgentResult format
-    const generatedImage = chartResult.generatedImages.length > 0 
-      ? chartResult.generatedImages[chartResult.generatedImages.length - 1]
+    const generatedImages = chartResult.generatedImages || [];
+    const generatedImage = generatedImages.length > 0
+      ? generatedImages[generatedImages.length - 1]
       : undefined;
-    
+
+    if (generatedImages.length > 0) {
+      console.log(`[ChartAgent] 🖼️ Charts to return:`, generatedImages.map((img, i) => ({
+        index: i,
+        description: img.description,
+        base64Length: img.base64?.length || 0,
+        mimeType: img.mimeType,
+      })));
+    } else {
+      console.warn(`[ChartAgent] ⚠️ No charts generated for "${sectionTitle}"`);
+    }
+
     return {
       content: chartResult.content,
       citations: [],
@@ -619,7 +696,7 @@ export async function generateSectionWithEvidence(
       },
       gaps: [],
       generatedImage,
-      generatedImages: chartResult.generatedImages,
+      generatedImages,
       executedCode: chartResult.executedCode,
       ragSources: [],
       dataEvidence: evidenceBundle.dataEvidence.map(d => ({
@@ -666,104 +743,22 @@ export async function generateSectionWithEvidence(
   emitThinking(ctx, 'draft', 'Writing documentation from evidence...');
   
   // Extract data files from evidence for chart generation (MUST be before buildEvidenceUserPrompt)
-  const dataFilesForSandbox: Array<{ path: string; content?: string; url?: string }> = [];
-  
-  // Helper to build GitHub raw URL
-  function buildGitHubRawUrl(repoUrl: string, filePath: string): string {
-    const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-    if (!match) return '';
-    const [, owner, repo] = match;
-    const repoName = repo.replace(/\.git$/, '').split('/')[0]; // Handle URLs with path
-    // Default to main branch (could be enhanced to detect branch from context)
-    return `https://raw.githubusercontent.com/${owner}/${repoName}/main/${filePath}`;
-  }
-  
-  // Get data file contents from the code intelligence context (with caching)
-  if (ctx.blockType === 'LLM_CHART') {
-    // Find data files in allFiles
-    const dataFilePatterns = /\.(csv|xlsx?|json|parquet|tsv)$/i;
-    for (const file of ctx.allFiles) {
-      if (dataFilePatterns.test(file.path)) {
-        // Check if file is truncated (from cache compression)
-        // Truncated files have "[TRUNCATED:" marker or are suspiciously small for data files
-        const isTruncated = file.content.includes('[TRUNCATED:') ||
-                           (file.content.split('\n').length <= 11 && file.content.length < 50000);
+  // Note: Chart blocks (LLM_CHART) are handled above and return early.
+  // This section only handles LLM_TEXT and LLM_TABLE blocks.
 
-        if (isTruncated && ctx.repoUrl) {
-          // File is truncated - check cache first, then fetch from GitHub
-          const githubUrl = buildGitHubRawUrl(ctx.repoUrl, file.path);
-          if (githubUrl) {
-            // Check cache first
-            const cached = ctx.dataFileCache?.get(file.path);
-            if (cached) {
-              console.log(`[EvidenceAgent] ✅ Using cached content for ${file.path}`);
-              dataFilesForSandbox.push({
-                path: file.path,
-                content: cached.content, // Use cached content
-              });
-            } else {
-              console.log(`[EvidenceAgent] File ${file.path} appears truncated, will fetch from GitHub with caching`);
-              dataFilesForSandbox.push({
-                path: file.path,
-                url: githubUrl, // Will be fetched and cached by sandbox
-              });
-            }
-          } else {
-            console.warn(`[EvidenceAgent] Could not build GitHub URL for ${file.path}`);
-          }
-        } else if (file.content && !isTruncated) {
-          // File is not truncated, use content directly
-          dataFilesForSandbox.push({
-            path: file.path,
-            content: file.content,
-          });
-        } else if (!file.content) {
-          // No content at all - check cache first, then try GitHub URL
-          const cached = ctx.dataFileCache?.get(file.path);
-          if (cached) {
-            console.log(`[EvidenceAgent] ✅ Using cached content for ${file.path}`);
-            dataFilesForSandbox.push({
-              path: file.path,
-              content: cached.content,
-            });
-          } else if (ctx.repoUrl) {
-            const githubUrl = buildGitHubRawUrl(ctx.repoUrl, file.path);
-            if (githubUrl) {
-              dataFilesForSandbox.push({
-                path: file.path,
-                url: githubUrl,
-              });
-            }
-          }
-        }
-      }
-    }
-    const urlCount = dataFilesForSandbox.filter(f => f.url).length;
-    const contentCount = dataFilesForSandbox.filter(f => f.content).length;
-    const cachedCount = dataFilesForSandbox.filter(f => f.content && ctx.dataFileCache?.has(f.path)).length;
-    console.log(`[EvidenceAgent] Found ${dataFilesForSandbox.length} data files: ${contentCount} with content (${cachedCount} cached), ${urlCount} from GitHub`);
-  }
-  
-  // Get available tools (especially for chart generation)
+  // Get available tools for text/table generation (table tool only, no chart tools needed)
   const tools = await getAvailableTools();
-  const hasChartTool = tools.some(t => t.function.name === 'generate_chart');
-  console.log(`[EvidenceAgent] Block type: ${ctx.blockType}, Tools available: ${tools.length}, Has chart tool: ${hasChartTool}`);
-  
-  // Warn user if chart tool is not available for chart blocks
-  if (ctx.blockType === 'LLM_CHART' && !hasChartTool) {
-    emitThinking(ctx, 'tool', '⚠️ Sandbox not running - charts disabled', 'Run: docker-compose up sandbox-python -d');
-  }
+  console.log(`[EvidenceAgent] Block type: ${ctx.blockType}, Tools available: ${tools.length}`);
   
   // DO NOT truncate evidence - LLM needs full codebase understanding
-  // Data files are handled via schema audits (outputs shown, not raw data)
-  const userPrompt = buildEvidenceUserPrompt(sectionTitle, sectionInstructions, evidenceBundle, ctx.blockType, dataFilesForSandbox);
-  
+  // Note: Data files for sandbox are only used by chart blocks, which return early above
+  const userPrompt = buildEvidenceUserPrompt(sectionTitle, sectionInstructions, evidenceBundle, ctx.blockType);
+
   const toolContext: ToolContext = {
     projectName: ctx.projectName,
     repoUrl: ctx.repoUrl,
     codebaseFiles: ctx.allFiles.map(f => f.path),
     currentSection: sectionTitle,
-    dataFiles: dataFilesForSandbox.length > 0 ? dataFilesForSandbox : undefined,
   };
   
   // Track tool outputs
@@ -771,23 +766,11 @@ export async function generateSectionWithEvidence(
   let generatedImages: Array<{ base64: string; mimeType: string; description?: string }> = []; // Support multiple charts
   let executedCode: string | undefined;
   
-  // Build system prompt with tool instructions if needed
-  let systemPrompt = EVIDENCE_SYSTEM_PROMPT;
-  if (ctx.blockType === 'LLM_CHART') {
-    if (hasChartTool) {
-      systemPrompt += '\n\n## ⚠️ CRITICAL: CHART GENERATION + ANALYSIS WORKFLOW ⚠️\n\n**WORKFLOW FOR CHART BLOCKS:**\n\n1. **Generate MULTIPLE charts** (3-5 visualizations)\n   - Call generate_chart multiple times\n   - Each chart shows different aspects (distributions, trends, comparisons)\n\n2. **Extract statistics** using execute_python_analysis\n   - Compute: mean, median, min, max, std dev, percentiles\n\n3. **Create summary tables** using create_data_table\n   - Present statistics in tabular format\n   - Include tables in your final response\n\n4. **Write comprehensive narrative**\n   - Describe each chart\n   - Reference statistical findings\n   - Explain key insights\n\n**IMPORTANT:** Generate MULTIPLE charts first, then analyze, then create tables, then write narrative.';
-    } else {
-      console.warn(`[EvidenceAgent] Chart tool not available for ${sectionTitle} - sandbox may be down`);
-      systemPrompt += '\n\n## CHART GENERATION REQUIRED\n\n**PREFER VISUALS OVER TABLES** - Generate charts/graphs, not tables.\n\nYou MUST generate Python matplotlib code in a code block. The code will be executed to create the chart.';
-    }
-  }
-  
-  // For chart blocks, we need to force tool usage
-  // Use function-specific tool_choice to strongly encourage chart generation
-  const initialToolChoice: 'auto' | { type: 'function'; function: { name: string } } | undefined = 
-    ctx.blockType === 'LLM_CHART' && hasChartTool
-      ? { type: 'function', function: { name: 'generate_chart' } }
-      : tools.length > 0 ? 'auto' : undefined;
+  // Build system prompt (charts are handled by the early return above, so this is for text/table blocks)
+  const systemPrompt = EVIDENCE_SYSTEM_PROMPT;
+
+  // For text/table blocks, use auto tool choice if tools are available
+  const initialToolChoice: 'auto' | undefined = tools.length > 0 ? 'auto' : undefined;
   
   console.log(`[EvidenceAgent] Tool choice for ${sectionTitle}:`, initialToolChoice);
   
@@ -810,9 +793,9 @@ export async function generateSectionWithEvidence(
     { role: 'user', content: userPrompt },
   ];
 
-  // For chart blocks, allow more iterations to support multiple charts + statistical analysis
+  // For text/table blocks, 3 iterations is sufficient
   let iterations = 0;
-  const maxIterations = ctx.blockType === 'LLM_CHART' ? 5 : 3; // Reduced from 8 to 5 to prevent excessive tool calls
+  const maxIterations = 3;
 
   // Track which tools have been called to prevent repeated table generation
   const calledTools = new Set<string>();
@@ -931,39 +914,11 @@ export async function generateSectionWithEvidence(
       }
     }
     
-    // EARLY TERMINATION: Stop if we have sufficient outputs for chart blocks
-    if (ctx.blockType === 'LLM_CHART' && iterations >= 3) {
-      const hasCharts = calledTools.has('generate_chart');
-      const hasAnalysis = calledTools.has('execute_python_analysis');
-      const hasTables = calledTools.has('create_data_table');
-
-      // Stop if we have charts AND at least one of (analysis OR tables)
-      if (hasCharts && (hasAnalysis || hasTables)) {
-        console.log('[EvidenceAgent] ✅ Chart block complete: charts + analysis/tables generated, stopping iteration');
-        emitThinking(ctx, 'complete', `Generated ${generatedImages.length} chart(s) with analysis`);
-        break; // Exit while loop
-      }
-
-      // Also stop if we've called the same tool multiple times (prevent repeated tables)
-      if (hasTables && iterations >= 4) {
-        console.log('[EvidenceAgent] ⚠️ Stopping to prevent repeated table generation');
-        break;
-      }
-    }
-
-    // Continue the conversation - DON'T break early for chart blocks
-    // Allow LLM to generate multiple charts, then analyze data, then create tables, then write narrative
+    // Continue the conversation
     const truncatedMessages = truncateMessagesForContext(messages, systemPrompt);
 
-    // For chart blocks, encourage continued tool usage if we haven't reached max iterations
-    let nextToolChoice: 'auto' | { type: 'function'; function: { name: string } } | undefined = 'auto';
-    if (ctx.blockType === 'LLM_CHART' && iterations < maxIterations - 1) {
-      // If we have charts but no analysis yet, encourage analysis
-      if (generatedImages.length > 0 && !content.includes('execute_python_analysis')) {
-        // Don't force, but allow auto to continue
-        nextToolChoice = 'auto';
-      }
-    }
+    // For text/table blocks, auto tool choice is sufficient
+    const nextToolChoice: 'auto' | undefined = 'auto';
     
     response = await ctx.openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -978,161 +933,8 @@ export async function generateSectionWithEvidence(
   // Get final content
   content = response.choices[0]?.message?.content || '';
 
-  // For chart blocks, strip out verbose sections that LLM might have generated despite instructions
-  if (ctx.blockType === 'LLM_CHART' && content) {
-    // Remove common verbose sections
-    content = content.replace(/##?\s*(Overview|Introduction|Charts Generated|Analysis Results|Data Sources and Metrics|Conclusion)\s*\n[\s\S]*?(?=\n##|\n===|$)/gi, '');
-
-    // Remove "Data Schema Evidence" tables (these are added by the system separately)
-    content = content.replace(/##?\s*Data Schema Evidence[\s\S]*?(?=\n##|$)/gi, '');
-
-    // Remove chart descriptions like "Chart 1: Description\nThis chart shows..."
-    content = content.replace(/Chart \d+:[\s\S]*?(?=\nChart \d+:|$)/gi, '');
-
-    // Remove standalone "This chart shows..." or "The visualization..." paragraphs
-    content = content.replace(/(?:^|\n)(This (?:chart|histogram|visualization|scatter plot|line graph)[\s\S]*?)(?=\n\n|$)/gi, '');
-
-    console.log(`[EvidenceAgent] Cleaned chart block content (${content.length} chars remaining)`);
-  }
-
-  // Extract base64 images from markdown content and add to generatedImages
-  if (ctx.blockType === 'LLM_CHART' && content) {
-    const imageRegex = /!\[([^\]]*)\]\(data:image\/([^;]+);base64,([^)]+)\)/g;
-    let match;
-    const extractedImages: Array<{ base64: string; mimeType: string; description: string }> = [];
-    while ((match = imageRegex.exec(content)) !== null) {
-      const [, alt, mimeType, base64] = match;
-      extractedImages.push({
-        base64,
-        mimeType: `image/${mimeType}`,
-        description: alt || `Chart from markdown`,
-      });
-      console.log(`[EvidenceAgent] Extracted chart from markdown: ${alt || 'unnamed'}`);
-    }
-    
-    // Add extracted images to generatedImages array
-    if (extractedImages.length > 0) {
-      generatedImages.push(...extractedImages);
-      console.log(`[EvidenceAgent] Added ${extractedImages.length} chart(s) from markdown content`);
-      
-      // Remove image markdown from content (images will be displayed separately in UI)
-      content = content.replace(/!\[([^\]]*)\]\(data:image\/[^)]+\)/g, '');
-    }
-  }
-  
-  // For chart blocks, only generate narrative if explicitly requested in instructions
-  // Check if instructions ask for descriptions/narrative/analysis
-  const requestsNarrative = sectionInstructions.toLowerCase().includes('describe') ||
-                            sectionInstructions.toLowerCase().includes('explain') ||
-                            sectionInstructions.toLowerCase().includes('analyze') ||
-                            sectionInstructions.toLowerCase().includes('discuss') ||
-                            sectionInstructions.toLowerCase().includes('narrative') ||
-                            sectionInstructions.toLowerCase().includes('interpretation');
-
-  if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100) && requestsNarrative) {
-    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated and narrative requested, creating description`);
-
-    // Build context about what charts were actually generated
-    const chartDescriptions = generatedImages.map((img, idx) =>
-      `Chart ${idx + 1}: ${img.description || 'Data visualization'}`
-    ).join('\n');
-
-    // Include executed code context if available
-    const codeContext = executedCode ? `\n\nThe Python code that generated the chart(s):\n\`\`\`python\n${executedCode.slice(0, 800)}\n\`\`\`` : '';
-
-    // Check if we have any statistical analysis results in the messages
-    let statsContext = '';
-    for (const msg of messages) {
-      if (msg.role === 'tool' && typeof msg.content === 'string') {
-        try {
-          const toolResult = JSON.parse(msg.content);
-          if (toolResult.result?.structuredResult) {
-            statsContext += `\n\n**Statistical Analysis Results:**\n\`\`\`json\n${JSON.stringify(toolResult.result.structuredResult, null, 2)}\n\`\`\``;
-          }
-          if (toolResult.result?.stdout) {
-            statsContext += `\n\n**Analysis Output:**\n\`\`\`\n${toolResult.result.stdout.slice(0, 1000)}\n\`\`\``;
-          }
-        } catch (e) {
-          // Not JSON, skip
-        }
-      }
-    }
-
-    // Use a prompt that references the actual charts generated and any statistics
-    const narrativePrompt = `Write a concise description (2-3 sentences) of the chart(s) and key findings for "${sectionTitle}".
-
-The following chart(s) were successfully created:
-${chartDescriptions}
-${codeContext}
-${statsContext}
-
-**IMPORTANT**:
-- Describe what each chart shows based on the code above
-- Reference any statistical findings if provided
-- Explain key insights and patterns observed
-- Be specific about what data is visualized (e.g., "Distribution of values from dataset.csv")
-- Keep it concise and focused`;
-
-    const narrativeResponse = await ctx.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You are a documentation assistant. Write concise, accurate descriptions of data visualizations. Focus on key insights and reference specific numbers when available.' },
-        { role: 'user', content: narrativePrompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 300, // Shorter for concise descriptions
-    });
-
-    // Append to existing content if any, otherwise replace
-    const newNarrative = narrativeResponse.choices[0]?.message?.content || '';
-    content = content.trim() ? `${content}\n\n${newNarrative}` : newNarrative;
-  } else if (ctx.blockType === 'LLM_CHART' && generatedImages.length > 0 && (!content.trim() || content.length < 100)) {
-    console.log(`[EvidenceAgent] ${generatedImages.length} chart(s) generated, no narrative requested - charts only`);
-    // Charts will be displayed without narrative text
-  }
-  
-  // For chart blocks, if no images were generated via tools, try to extract Python code from content
-  if (ctx.blockType === 'LLM_CHART' && generatedImages.length === 0 && content) {
-    console.log(`[EvidenceAgent] ⚠️ Chart block "${sectionTitle}" did not generate image via tools. Attempting fallback extraction...`);
-    const pythonCodeMatch = content.match(/```python\s*([\s\S]*?)```/);
-    if (pythonCodeMatch) {
-      const pythonCode = pythonCodeMatch[1].trim();
-      console.log(`[EvidenceAgent] Found Python code block (${pythonCode.length} chars), executing...`);
-      try {
-        const { generateChart, isSandboxAvailable } = await import('./sandbox-client');
-        const sandboxAvailable = await isSandboxAvailable();
-        if (!sandboxAvailable) {
-          console.error(`[EvidenceAgent] ❌ Sandbox not available - cannot execute chart code for "${sectionTitle}"`);
-          // Add a visible warning to the content
-          content = `⚠️ **Chart Generation Unavailable**: The Python sandbox service is not running. To generate charts:\n\n1. Run \`docker-compose up sandbox-python -d\` OR\n2. Run \`cd services/sandbox-python && pip install -r requirements.txt && python main.py\`\n\n---\n\n**Chart Code (not executed):**\n\n\`\`\`python\n${pythonCode}\n\`\`\`\n\n---\n\n${content}`;
-        } else {
-          const chartResult = await generateChart(pythonCode);
-          if (chartResult.success && chartResult.imageBase64) {
-            generatedImages.push({
-              base64: chartResult.imageBase64,
-              mimeType: chartResult.imageMimeType || 'image/png',
-              description: 'Chart from extracted code',
-            });
-            executedCode = pythonCode;
-            console.log(`[EvidenceAgent] ✅ Chart generated successfully via fallback for "${sectionTitle}"`);
-          } else {
-            console.warn(`[EvidenceAgent] ⚠️ Chart generation failed:`, chartResult.error);
-            // Add error to content
-            content = `⚠️ **Chart Generation Failed**: ${chartResult.error || 'Unknown error'}\n\n**Chart Code:**\n\n\`\`\`python\n${pythonCode}\n\`\`\`\n\n---\n\n${content}`;
-          }
-        }
-      } catch (error) {
-        console.error(`[EvidenceAgent] ❌ Error executing chart code:`, error);
-        content = `⚠️ **Chart Execution Error**: ${error instanceof Error ? error.message : 'Unknown error'}\n\n---\n\n${content}`;
-      }
-    } else {
-      console.warn(`[EvidenceAgent] ⚠️ No Python code block found in chart response for "${sectionTitle}". Content preview: ${content.substring(0, 200)}...`);
-      // LLM didn't generate code at all
-      if (!hasChartTool) {
-        content = `⚠️ **Chart Generation Unavailable**: The Python sandbox service is not running. Start it with:\n\n\`docker-compose up sandbox-python -d\`\n\n---\n\n${content}`;
-      }
-    }
-  }
+  // Note: Chart block processing (LLM_CHART) is handled by the early return above.
+  // Text/table blocks continue here with their generated content.
   
   // Extract citations and build claim-evidence map
   const { citations, citationDetails, claimEvidenceMap, gaps } = extractCitationsAndClaims(

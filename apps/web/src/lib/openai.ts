@@ -1700,7 +1700,8 @@ async function processSection(
   context: GenerationContext,
   section: TemplateSection,
   path: string[],
-  onProgress: (message: string) => void
+  onProgress: (message: string) => void,
+  onBlockComplete?: (sectionId: string, sectionTitle: string, block: GeneratedBlock, blockIndex: number, totalBlocks: number) => void
 ): Promise<GeneratedSection> {
   const currentPath = [...path, section.title];
 
@@ -1735,6 +1736,12 @@ async function processSection(
       const blockDuration = Date.now() - blockStartTime;
       console.log(`[OpenAI] ✅ Block "${block.title}" complete in ${Math.round(blockDuration / 1000)}s (parallel). Has image: ${!!generatedBlock.generatedImage}`);
 
+      // Stream block to UI immediately as it completes (don't wait for other parallel blocks)
+      if (onBlockComplete) {
+        console.log(`[OpenAI] 📤 Streaming block "${block.title}" to UI immediately`);
+        onBlockComplete(section.id, section.title, generatedBlock, i, section.blocks.length);
+      }
+
       return generatedBlock;
     });
 
@@ -1767,16 +1774,22 @@ async function processSection(
       const blockDuration = Date.now() - blockStartTime;
       console.log(`[OpenAI] Block "${block.title}" complete in ${Math.round(blockDuration / 1000)}s. Has image: ${!!generatedBlock.generatedImage}`);
       blocks.push(generatedBlock);
+
+      // Stream block to UI immediately
+      if (onBlockComplete) {
+        console.log(`[OpenAI] 📤 Streaming block "${block.title}" to UI immediately`);
+        onBlockComplete(section.id, section.title, generatedBlock, i, section.blocks.length);
+      }
     }
   }
-  
+
   // Process subsections recursively
   let subsections: GeneratedSection[] | undefined;
   if (section.subsections && section.subsections.length > 0) {
     subsections = [];
     for (const subsection of section.subsections) {
       const generatedSubsection = await processSection(
-        openai, context, subsection, currentPath, onProgress
+        openai, context, subsection, currentPath, onProgress, onBlockComplete
       );
       subsections.push(generatedSubsection);
     }
@@ -2248,6 +2261,7 @@ export async function generateDocument(
   onProgress?: (progress: number, message: string) => void,
   onSectionComplete?: (section: GeneratedSection) => void,
   projectCache?: {
+    onBlockComplete?: (sectionId: string, sectionTitle: string, block: GeneratedBlock, blockIndex: number, totalBlocks: number) => void;
     lastCommitHash?: string;
     cachedKnowledgeBase?: any;
     cachedCodeIntelligence?: any;
@@ -2534,7 +2548,8 @@ export async function generateDocument(
           completedBlocks++;
           const progress = 15 + (completedBlocks / totalBlocks) * 70;
           onProgress?.(progress, message);
-        }
+        },
+        projectCache?.onBlockComplete // Stream individual blocks as they complete
       );
       sections.push(section);
 

@@ -48,7 +48,7 @@ export default function HomePage() {
           
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link href="/login" className="btn-primary px-8 py-3 text-base">
-              Start Free <ArrowRight className="ml-2 h-4 w-4" />
+              Start <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
             <Link href="#features" className="btn-secondary px-8 py-3 text-base">
               See How It Works

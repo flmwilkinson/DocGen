@@ -255,6 +255,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import os
+import warnings
+
+# Suppress matplotlib warnings that can cause issues
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore', message='.*masked.*')
+
+# Clear any previous matplotlib state
+plt.close('all')
+plt.rcdefaults()
 
 # Data directory where transferred files are located
 DATA_DIR = "${dataDir || '/tmp/sandbox/data'}"
@@ -300,14 +310,31 @@ plt.rcParams['grid.color'] = '#0f3460'
 ${cleanedCode}
 
 # Ensure all figures are saved (support multiple charts)
+# Wrap in try/except to handle any rendering errors gracefully
 if plt.get_fignums():
     fig_nums = plt.get_fignums()
+    saved_count = 0
     for i, fig_num in enumerate(fig_nums):
-        fig = plt.figure(fig_num)
-        fig.tight_layout()
-        # Save each figure with a unique name
-        chart_filename = f'chart_{i}.png' if len(fig_nums) > 1 else 'chart.png'
-        fig.savefig(os.path.join(OUTPUT_DIR, chart_filename), dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
+        try:
+            fig = plt.figure(fig_num)
+            fig.tight_layout()
+            # Save each figure with a unique name
+            chart_filename = f'chart_{i}.png' if len(fig_nums) > 1 else 'chart.png'
+            fig.savefig(os.path.join(OUTPUT_DIR, chart_filename), dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
+            saved_count += 1
+            print(f"Saved chart: {chart_filename}")
+        except Exception as e:
+            print(f"Warning: Failed to save figure {fig_num}: {e}")
+            # Try to save with minimal options as fallback
+            try:
+                fig.savefig(os.path.join(OUTPUT_DIR, f'chart_fallback_{i}.png'), dpi=100)
+                saved_count += 1
+                print(f"Saved fallback chart: chart_fallback_{i}.png")
+            except Exception as e2:
+                print(f"Error: Could not save figure {fig_num} even with fallback: {e2}")
+        finally:
+            plt.close(fig)
+    print(f"Total charts saved: {saved_count}")
     plt.close('all')
 `;
 

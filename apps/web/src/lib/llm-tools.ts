@@ -27,8 +27,8 @@ export interface ToolContext {
   repoUrl?: string;
   codebaseFiles?: string[];
   currentSection?: string;
-  /** Data files available for chart generation - content already fetched */
-  dataFiles?: Array<{ path: string; content: string }>;
+  /** Data files available for chart generation - content may be fetched or URL provided */
+  dataFiles?: Array<{ path: string; content?: string; url?: string }>;
 }
 
 // Tool definitions for OpenAI
@@ -52,9 +52,19 @@ The chart will be rendered with a dark theme matching the application.`,
             description: `Complete Python code to generate the chart using matplotlib/seaborn.
 Available imports: matplotlib.pyplot as plt, numpy as np, seaborn as sns, pandas as pd.
 Do NOT include plt.show() - the chart is automatically saved.
+
+CRITICAL: Handle data issues to avoid errors:
+- Use .dropna() before plotting to remove NaN values
+- Use .select_dtypes(include=[np.number]) for numeric-only operations
+- For correlation: df.select_dtypes(include=[np.number]).corr()
+- For boxplots: only use numeric columns
+- Check dtypes and convert with pd.to_numeric(col, errors='coerce') if needed
+
 Example:
+df = pd.read_csv('data/file.csv')
+numeric_df = df.select_dtypes(include=[np.number]).dropna()
 plt.figure(figsize=(10, 6))
-plt.bar(['A', 'B', 'C'], [10, 20, 15])
+plt.bar(numeric_df.columns[:3], numeric_df.iloc[0, :3])
 plt.title('My Chart')`,
           },
           description: {
@@ -232,10 +242,18 @@ async function executeGenerateChart(
       };
     } else {
       console.warn(`[LLM Tools] ⚠️ Chart generation failed:`, result.error);
+      // Log stdout/stderr for debugging - this shows what data was loaded
+      if (result.stdout) {
+        console.log(`[LLM Tools] 📋 Sandbox stdout:\n${result.stdout}`);
+      }
+      if (result.stderr) {
+        console.log(`[LLM Tools] 📋 Sandbox stderr:\n${result.stderr}`);
+      }
       return {
         success: false,
         error: result.error || 'Chart generation failed',
         executedCode: pythonCode,
+        stdout: result.stdout, // Include for debugging
       };
     }
   } catch (error) {

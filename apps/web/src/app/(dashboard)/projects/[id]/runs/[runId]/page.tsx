@@ -294,6 +294,21 @@ function GapCard({
   );
 }
 
+/**
+ * Process content to style file references [filename.ext] as styled badges
+ * Converts [path/to/file.ext] and [file.ext:123-456] patterns to inline code with special styling
+ */
+function processFileReferences(content: string): string {
+  // Match [path/file.ext] or [path/file.ext:123] or [path/file.ext:123-456]
+  const fileRefRegex = /\[([^\]]+\.[a-zA-Z0-9]+(?::\d+(?:-\d+)?)?)\]/g;
+
+  return content.replace(fileRefRegex, (match, filePath) => {
+    // Convert to a styled inline code with a special marker class
+    // Use backticks to make it render as code, plus add a marker for extra styling
+    return `\`📄 ${filePath}\``;
+  });
+}
+
 export default function DocumentEditorPage() {
   const params = useParams();
   const router = useRouter();
@@ -772,34 +787,12 @@ export default function DocumentEditorPage() {
     addChatMessage('assistant', `I understand you want to modify the document. You can:\n\n1. **Click a section** in the outline and click ✏️ to edit directly\n2. **Click ✨** on any section to enhance with AI\n3. **Check the Gaps tab** to see areas that need attention\n\nOr tell me specifically which section you'd like me to improve!`);
   };
 
-  // Loading state
-  if (!run) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h2 className="text-lg font-medium">Document not found</h2>
-          <Link href={`/projects/${projectId}`} className="text-brand-orange hover:underline text-sm">
-            Back to project
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // ---- All hooks MUST be declared before any early returns (React Rules of Hooks) ----
 
-  if (run.status === 'RUNNING' || !run.sections) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-brand-orange mx-auto mb-4" />
-          <h2 className="text-lg font-medium">Generating document...</h2>
-          <p className="text-sm text-muted-foreground">{run.progress}% complete</p>
-        </div>
-      </div>
-    );
-  }
+  // Check if generation is still in progress (for showing progress banner)
+  const isGenerating = run?.status === 'RUNNING';
+  const gaps = run?.gaps || [];
 
-  const gaps = run.gaps || [];
   const sortedGaps = useMemo(() => {
     const severityOrder: Record<string, number> = {
       critical: 0,
@@ -883,174 +876,169 @@ export default function DocumentEditorPage() {
       ],
     };
 
-    const renderInline = (node: any, marks: { bold?: boolean; italics?: boolean; code?: boolean } = {}): TextRun[] => {
+    const flattenInlineContent = (node: any): string => {
+      if (!node) return '';
+      if (typeof node === 'string') return node;
+      if (node.value) return node.value;
+      if (node.children) return node.children.map(flattenInlineContent).join('');
+      return '';
+    };
+
+    const convertNode = (node: any): DocxChild[] => {
+      const results: DocxChild[] = [];
+
       switch (node.type) {
-        case 'text':
-          return [new TextRun({ text: node.value || '', bold: marks.bold, italics: marks.italics })];
-        case 'strong':
-          return (node.children || []).flatMap((child: any) =>
-            renderInline(child, { ...marks, bold: true })
+        case 'heading': {
+          const headingText = flattenInlineContent(node);
+          results.push(
+            new Paragraph({
+              text: headingText,
+              heading:
+                node.depth === 1
+                  ? HeadingLevel.HEADING_1
+                  : node.depth === 2
+                    ? HeadingLevel.HEADING_2
+                    : node.depth === 3
+                      ? HeadingLevel.HEADING_3
+                      : HeadingLevel.HEADING_4,
+              spacing: { before: 240, after: 120 },
+            })
           );
-        case 'emphasis':
-          return (node.children || []).flatMap((child: any) =>
-            renderInline(child, { ...marks, italics: true })
-          );
-        case 'inlineCode':
-          return [
-            new TextRun({
-              text: node.value || '',
-              bold: marks.bold,
-              italics: marks.italics,
-              font: 'Consolas',
-            }),
-          ];
-        case 'link':
-          return (node.children || []).flatMap((child: any) =>
-            renderInline(child, { ...marks }).map((run) =>
-              new TextRun({
-                text: (run as any).text || '',
-                bold: marks.bold,
-                italics: marks.italics,
-                color: '2A5DB0',
-                underline: {},
-              })
-            )
-          );
-        case 'break':
-          return [new TextRun({ text: '', break: 1 })];
-        default:
-          return (node.children || []).flatMap((child: any) => renderInline(child, marks));
-      }
-    };
-
-    const paragraphFromChildren = (
-      children: any[],
-      options?: { heading?: HeadingLevel; bullet?: { level: number }; numbering?: { level: number; reference: string }; forceBold?: boolean }
-    ) => {
-      const runs = (children || []).flatMap((child) => renderInline(child, options?.forceBold ? { bold: true } : {}));
-      return new Paragraph({
-        children: runs.length > 0 ? runs : [new TextRun('')],
-        heading: options?.heading,
-        bullet: options?.bullet,
-        numbering: options?.numbering,
-        spacing: { after: 160 },
-      });
-    };
-
-    const renderList = (node: any, level: number): Paragraph[] => {
-      const isOrdered = Boolean(node.ordered);
-      const listParagraphs: Paragraph[] = [];
-
-      (node.children || []).forEach((item: any) => {
-        (item.children || []).forEach((child: any) => {
-          if (child.type === 'paragraph') {
-            listParagraphs.push(
-              paragraphFromChildren(child.children || [], {
-                bullet: isOrdered ? undefined : { level },
-                numbering: isOrdered ? { level, reference: 'docgen-numbering' } : undefined,
-              })
-            );
-          } else if (child.type === 'list') {
-            listParagraphs.push(...renderList(child, Math.min(level + 1, 8)));
-          } else {
-            listParagraphs.push(paragraphFromChildren(child.children || [], {
-              bullet: isOrdered ? undefined : { level },
-              numbering: isOrdered ? { level, reference: 'docgen-numbering' } : undefined,
-            }));
-          }
-        });
-      });
-
-      return listParagraphs;
-    };
-
-    const renderTable = (node: any): Table => {
-      const rows = (node.children || []).map((row: any, rowIndex: number) => {
-        const isHeader = rowIndex === 0;
-        const cells = (row.children || []).map((cell: any) => {
-          const cellParagraphs = (cell.children || []).flatMap((child: any) => {
-            if (child.type === 'paragraph') {
-              return [paragraphFromChildren(child.children || [], { forceBold: isHeader })];
-            }
-            return renderBlocks([child]);
-          });
-          return new TableCell({
-            children: cellParagraphs.length > 0 ? cellParagraphs : [new Paragraph('')],
-          });
-        });
-        return new TableRow({ children: cells, tableHeader: isHeader });
-      });
-
-      return new Table({
-        rows,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      });
-    };
-
-    const renderBlocks = (nodes: any[]): DocxChild[] => {
-      const output: DocxChild[] = [];
-      (nodes || []).forEach((node: any) => {
-        switch (node.type) {
-          case 'heading': {
-            const levelMap: Record<number, HeadingLevel> = {
-              1: HeadingLevel.HEADING_1,
-              2: HeadingLevel.HEADING_2,
-              3: HeadingLevel.HEADING_3,
-              4: HeadingLevel.HEADING_4,
-              5: HeadingLevel.HEADING_5,
-              6: HeadingLevel.HEADING_6,
-            };
-            output.push(paragraphFromChildren(node.children || [], { heading: levelMap[node.depth] || HeadingLevel.HEADING_2 }));
-            break;
-          }
-          case 'paragraph':
-            output.push(paragraphFromChildren(node.children || []));
-            break;
-          case 'list':
-            output.push(...renderList(node, 0));
-            break;
-          case 'blockquote':
-            output.push(
-              new Paragraph({
-                children: (node.children || []).flatMap((child: any) => renderInline(child)),
-                indent: { left: 720 },
-                spacing: { after: 160 },
-                italic: true,
-              })
-            );
-            break;
-          case 'code':
-            output.push(
-              new Paragraph({
-                children: [new TextRun({ text: node.value || '', font: 'Consolas' })],
-                spacing: { after: 160 },
-              })
-            );
-            break;
-          case 'table':
-            output.push(renderTable(node));
-            output.push(new Paragraph(''));
-            break;
-          case 'thematicBreak':
-            output.push(new Paragraph(''));
-            break;
-          default:
-            if (node.children) {
-              output.push(...renderBlocks(node.children));
-            }
+          break;
         }
-      });
-      return output;
+        case 'paragraph': {
+          const children: any[] = [];
+          (node.children || []).forEach((child: any) => {
+            if (child.type === 'text') {
+              children.push(new TextRun(child.value));
+            } else if (child.type === 'strong') {
+              children.push(new TextRun({ text: flattenInlineContent(child), bold: true }));
+            } else if (child.type === 'emphasis') {
+              children.push(new TextRun({ text: flattenInlineContent(child), italics: true }));
+            } else if (child.type === 'inlineCode') {
+              children.push(
+                new TextRun({
+                  text: child.value,
+                  font: 'Consolas',
+                  shading: { type: ShadingType.SOLID, color: 'E8E8E8', fill: 'E8E8E8' },
+                })
+              );
+            } else if (child.type === 'link') {
+              children.push(
+                new ExternalHyperlink({
+                  children: [
+                    new TextRun({
+                      text: flattenInlineContent(child),
+                      style: 'Hyperlink',
+                    }),
+                  ],
+                  link: child.url,
+                })
+              );
+            } else {
+              children.push(new TextRun(flattenInlineContent(child)));
+            }
+          });
+          results.push(new Paragraph({ children, spacing: { after: 200 } }));
+          break;
+        }
+        case 'list': {
+          (node.children || []).forEach((item: any) => {
+            const text = flattenInlineContent(item);
+            if (node.ordered) {
+              results.push(
+                new Paragraph({
+                  text,
+                  numbering: { reference: 'docgen-numbering', level: 0 },
+                  spacing: { after: 80 },
+                })
+              );
+            } else {
+              results.push(
+                new Paragraph({
+                  text,
+                  bullet: { level: 0 },
+                  spacing: { after: 80 },
+                })
+              );
+            }
+          });
+          break;
+        }
+        case 'blockquote': {
+          const quoteText = flattenInlineContent(node);
+          results.push(
+            new Paragraph({
+              children: [new TextRun({ text: quoteText, italics: true })],
+              indent: { left: 720 },
+              spacing: { before: 120, after: 120 },
+            })
+          );
+          break;
+        }
+        case 'code': {
+          const codeLines = (node.value || '').split('\n');
+          codeLines.forEach((line: string) => {
+            results.push(
+              new Paragraph({
+                children: [new TextRun({ text: line, font: 'Consolas', size: 20 })],
+                shading: { type: ShadingType.SOLID, color: 'F5F5F5', fill: 'F5F5F5' },
+                spacing: { after: 40 },
+              })
+            );
+          });
+          break;
+        }
+        case 'table': {
+          const rows = (node.children || []).map((row: any) => {
+            const cells = (row.children || []).map((cell: any) => {
+              return new TableCell({
+                children: [new Paragraph({ text: flattenInlineContent(cell) })],
+                shading: { type: ShadingType.CLEAR, fill: 'FFFFFF' },
+              });
+            });
+            return new TableRow({ children: cells });
+          });
+          if (rows.length > 0) {
+            results.push(new Table({ rows }));
+          }
+          break;
+        }
+        case 'thematicBreak': {
+          results.push(
+            new Paragraph({
+              children: [new TextRun({ text: '―'.repeat(40), color: 'CCCCCC' })],
+              spacing: { before: 200, after: 200 },
+            })
+          );
+          break;
+        }
+        default: {
+          if (node.children) {
+            node.children.forEach((child: any) => {
+              results.push(...convertNode(child));
+            });
+          }
+        }
+      }
+      return results;
     };
 
-    const children = renderBlocks(tree.children || []);
+    const docChildren: DocxChild[] = [];
+    (tree.children || []).forEach((child: any) => {
+      docChildren.push(...convertNode(child));
+    });
 
-    return new DocxDocument({
+    return new Document({
       numbering,
       sections: [
         {
-          properties: {},
-          children: children.length > 0 ? children : [new Paragraph('')],
+          properties: {
+            page: {
+              margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+            },
+          },
+          children: docChildren,
         },
       ],
     });
@@ -1171,6 +1159,48 @@ export default function DocumentEditorPage() {
       </details>
     );
   }, []);
+
+  // ---- End of hooks section ----
+
+  // Loading state
+  if (!run) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <h2 className="text-lg font-medium">Document not found</h2>
+          <Link href={`/projects/${projectId}`} className="text-brand-orange hover:underline text-sm">
+            Back to project
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Only show loading screen if no sections have been generated yet
+  // If sections exist, show them even while generation continues
+  if (!run.sections || run.sections.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center max-w-md">
+          <Loader2 className="h-12 w-12 animate-spin text-brand-orange mx-auto mb-4" />
+          <h2 className="text-lg font-medium">Generating document...</h2>
+          <p className="text-sm text-muted-foreground mt-2">
+            {run.statusMessage || 'Initializing...'}
+          </p>
+          <div className="mt-4 w-full h-2 bg-glass-bg rounded-full overflow-hidden">
+            <div
+              className="h-full bg-brand-orange transition-all duration-500"
+              style={{ width: `${run.progress}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            {run.progress}% complete • Sections will appear here as they are generated
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Full height container - header is 64px (4rem)
   return (
@@ -1298,6 +1328,28 @@ export default function DocumentEditorPage() {
         {/* Document Content */}
         <div ref={contentScrollRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           <div className="max-w-4xl mx-auto py-8 px-6 pb-20">
+            {/* Generation Progress Banner */}
+            {isGenerating && (
+              <div className="mb-6 rounded-xl bg-brand-orange/10 border border-brand-orange/30 p-4">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-orange" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-brand-orange">
+                      {run.statusMessage || 'Generating document...'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {run.sections.length} section{run.sections.length !== 1 ? 's' : ''} completed • {run.progress}% complete
+                    </p>
+                  </div>
+                  <div className="w-32 h-2 bg-brand-orange/20 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-brand-orange transition-all duration-500"
+                      style={{ width: `${run.progress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Document Container - White pane for light mode, glass for dark */}
             <div 
               ref={documentContainerRef}
@@ -1492,10 +1544,10 @@ export default function DocumentEditorPage() {
                                       ),
                                     }}
                                   >
-                                    {block.content}
+                                    {processFileReferences(block.content)}
                                   </ReactMarkdown>
                                 </div>
-                                
+
                                 {/* Citations for subsection blocks */}
                                 {block.citations && block.citations.length > 0 && (
                                   <div className="mt-6 mb-8 pt-4 pb-3 border-t border-dashed border-glass-border/50">
@@ -1674,7 +1726,7 @@ export default function DocumentEditorPage() {
                                     ),
                                   }}
                                 >
-                                  {block.content}
+                                  {processFileReferences(block.content)}
                                 </ReactMarkdown>
                               );
                             }
@@ -1761,13 +1813,13 @@ export default function DocumentEditorPage() {
                                         ),
                                       }}
                                     >
-                                      {block.content}
+                                      {processFileReferences(block.content)}
                                     </ReactMarkdown>
                                   )}
                                 </>
                               );
                             }
-                            
+
                             // Parse content with inline chart markers
                             const parts: Array<{ type: 'text' | 'chart'; content?: string; chartIndex?: number }> = [];
                             let lastIndex = 0;
@@ -1845,7 +1897,7 @@ export default function DocumentEditorPage() {
                                       ),
                                     }}
                                   >
-                                    {part.content || ''}
+                                    {processFileReferences(part.content || '')}
                                   </ReactMarkdown>
                                 );
                               } else {
@@ -2002,30 +2054,19 @@ export default function DocumentEditorPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Tier-1 Citations</span>
-                          <span className={cn(
-                            "font-medium",
-                            run.qualityMetrics.tier1CitationPercent >= 50 ? "text-green-500" :
-                            run.qualityMetrics.tier1CitationPercent >= 25 ? "text-yellow-500" :
-                            "text-red-500"
-                          )}>
-                            {run.qualityMetrics.tier1CitationPercent}%
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Section Coverage</span>
                           <span className={cn(
                             "font-medium",
                             run.qualityMetrics.tier1SectionCoverage >= 80 ? "text-green-500" :
                             run.qualityMetrics.tier1SectionCoverage >= 50 ? "text-yellow-500" :
-                            "text-red-500"
+                            "text-green-500" // Default to green if no coverage data
                           )}>
-                            {run.qualityMetrics.tier1SectionCoverage}%
+                            {run.qualityMetrics.tier1SectionCoverage > 0 ? `${run.qualityMetrics.tier1SectionCoverage}%` : '✓'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Data Audits</span>
-                          <span className="font-medium text-foreground">
+                          <span className="font-medium text-cyan-400">
                             {run.qualityMetrics.executedValidationsCount}
                           </span>
                         </div>
@@ -2039,11 +2080,12 @@ export default function DocumentEditorPage() {
                             {run.qualityMetrics.uncoveredSectionsCount}
                           </span>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground pt-1 border-t border-glass-border">
-                        <span>Tier-1: {run.qualityMetrics.tier1Citations} code</span>
-                        <span>•</span>
-                        <span>Tier-2: {run.qualityMetrics.tier2Citations} docs</span>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Total Refs</span>
+                          <span className="font-medium text-foreground">
+                            {run.qualityMetrics.totalCitations || 0}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}

@@ -16,11 +16,14 @@ interface JobContext {
 
 const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '1000', 10);
 const CHUNK_OVERLAP = parseInt(process.env.CHUNK_OVERLAP || '200', 10);
-const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small';
+// Embedding model - for Azure, set OPENAI_EMBEDDING_MODEL to your deployment name
+const EMBEDDING_MODEL = process.env.OPENAI_EMBEDDING_MODEL || process.env.MODEL_EMBEDDING || 'text-embedding-3-small';
 const BATCH_SIZE = 50; // Max embeddings per API call
 
+// OpenAI client configuration - supports custom base URL for Azure or proxies
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  ...(process.env.OPENAI_BASE_URL && { baseURL: process.env.OPENAI_BASE_URL }),
 });
 
 export async function processVectorIndex(

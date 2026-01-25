@@ -63,32 +63,16 @@ import {
   ToolResult 
 } from './llm-tools';
 
-// Initialize OpenAI client
+// Import centralized OpenAI configuration
+import { createBrowserOpenAIClient, getModelName } from './openai-config';
+
+// Initialize OpenAI client using centralized config (supports Azure and custom endpoints)
 const getOpenAIClient = () => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY ||
-                 (typeof window !== 'undefined' ? (window as any).__OPENAI_API_KEY__ : null);
-
-  if (!apiKey || apiKey === 'sk-...' || apiKey.includes('...')) {
-    throw new Error('OpenAI API key not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file and restart the dev server.');
-  }
-
-  // Support custom base URL for corporate proxy, Azure OpenAI, or other OpenAI-compatible APIs
-  const baseURL = process.env.NEXT_PUBLIC_OPENAI_BASE_URL ||
-                  (typeof window !== 'undefined' ? (window as any).__OPENAI_BASE_URL__ : null);
-
-  console.log('[OpenAI] Initializing client with API key:', apiKey.substring(0, 10) + '...');
-  if (baseURL) {
-    console.log('[OpenAI] Using custom base URL:', baseURL);
-  }
-
-  return new OpenAI({
-    apiKey,
-    ...(baseURL && { baseURL }),
-    dangerouslyAllowBrowser: true,
-    timeout: 60000,
-    maxRetries: 2,
-  });
+  return createBrowserOpenAIClient();
 };
+
+// Get the configured model name for LLM calls
+const LLM_MODEL = getModelName('fast');
 
 /**
  * Code Knowledge Base - Stores categorized source files from the repository
@@ -1470,7 +1454,7 @@ Analyze the code, understand what this system is, adapt the section topic approp
     
     let response = await Promise.race([
       openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: LLM_MODEL,
         messages: [
           { role: 'system', content: systemPrompt + '\n\nYou have access to tools for generating charts, executing Python analysis, and creating tables. Use them when appropriate to enhance the documentation.' + (block.type === 'LLM_CHART' ? '\n\n⚠️ CRITICAL: For chart blocks, you MUST call the generate_chart tool.\n\n**SANDBOX ISOLATION:** The sandbox does NOT have access to files! You CANNOT use pd.read_csv() with file paths. You MUST use INLINE DATA in your Python code. Create data using pd.DataFrame({...}) with values directly in the code.\n\n**WRONG:** df = pd.read_csv("file.csv") - THIS WILL FAIL!\n**CORRECT:** df = pd.DataFrame({"col": [1,2,3]})' : '') },
           { role: 'user', content: userPrompt }
@@ -1546,7 +1530,7 @@ Analyze the code, understand what this system is, adapt the section topic approp
       // Continue conversation with tool results
       response = await Promise.race([
         openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: LLM_MODEL,
           messages,
           temperature: 0.5,
           max_tokens: 2000,
@@ -2025,7 +2009,7 @@ async function detectGaps(
       
       try {
         const reviewResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: LLM_MODEL,
           messages: [
             {
               role: 'system',
@@ -2113,7 +2097,7 @@ Are there gaps where more detail would improve this documentation?`,
   
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         {
           role: 'system',
@@ -2197,7 +2181,7 @@ async function generateCodebaseSummary(
   
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         {
           role: 'system',

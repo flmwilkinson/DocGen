@@ -28,6 +28,10 @@
 import { CodeChunk, CodeIntelligenceResult, CodeRelationship } from './code-intelligence';
 import { executeCode, isSandboxAvailable } from './sandbox-client';
 import OpenAI from 'openai';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // =============================================================================
 // TYPES
@@ -595,7 +599,7 @@ Calls: ${callees.slice(0, 3).join(', ') || 'none'}`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         {
           role: 'system',
@@ -644,10 +648,10 @@ export async function retrieveEvidence(
   const tier2Sources: TieredSource[] = [];
   const nodeSummaries = new Map<string, string>();
   
-  // Initial search
+  // Initial search - increased from 20 to 30 for better comprehensiveness
   const searchResults = await codeIntelligence.search(
     `${sectionTitle}\n${sectionInstructions}`,
-    20
+    30
   );
   
   // Classify and score all results
@@ -676,8 +680,9 @@ export async function retrieveEvidence(
     // Generate Tier-1 specific search queries
     const tier1Queries = generateTier1Queries(sectionTitle, sectionInstructions);
     
+    // Search with each tier-1 specific query - increased from 10 to 15 for better coverage
     for (const query of tier1Queries) {
-      const moreResults = await codeIntelligence.search(query, 10);
+      const moreResults = await codeIntelligence.search(query, 15);
       
       for (const result of moreResults) {
         const { tier, category } = classifySource(result.chunk.filePath);
@@ -696,7 +701,8 @@ export async function retrieveEvidence(
   }
   
   // Generate node summaries for Tier-1 sources (reuse cache if available)
-  for (const source of tier1Sources.slice(0, 5)) {
+  // Increased from 5 to 8 for better comprehensiveness
+  for (const source of tier1Sources.slice(0, 8)) {
     if (!nodeSummaries.has(source.filePath)) {
       const cached = nodeSummaryCache?.[source.filePath];
       if (cached) {
@@ -775,8 +781,20 @@ function generateTier1Queries(sectionTitle: string, instructions: string): strin
   if (terms.includes('ecl') || terms.includes('expected credit loss')) {
     queries.push('expected credit loss', 'ECL calculation', 'impairment');
   }
-  
-  return queries.slice(0, 5);
+
+  // Additional patterns for better coverage
+  if (terms.includes('api') || terms.includes('endpoint') || terms.includes('route')) {
+    queries.push('router', 'endpoint', 'api handler', 'http method');
+  }
+  if (terms.includes('database') || terms.includes('sql') || terms.includes('schema')) {
+    queries.push('create table', 'migration', 'schema', 'database');
+  }
+  if (terms.includes('validation') || terms.includes('error')) {
+    queries.push('validate', 'validation schema', 'error handling', 'exception');
+  }
+
+  // Increased from 5 to 7 for better comprehensiveness
+  return queries.slice(0, 7);
 }
 
 // =============================================================================

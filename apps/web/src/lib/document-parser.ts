@@ -9,6 +9,10 @@
  */
 
 import OpenAI from 'openai';
+import { createBrowserOpenAIClient, getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // Types for document structure
 export interface DocumentHeading {
@@ -293,15 +297,10 @@ export async function inferDocumentStructure(
   rawText: string,
   fileName: string
 ): Promise<{ sections: { title: string; content: string; type: 'text' | 'table' }[] }> {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OpenAI API key not configured');
-  }
-  
-  const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-  
+  const openai = createBrowserOpenAIClient();
+
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     temperature: 0.3,
     response_format: { type: 'json_object' },
     messages: [
@@ -349,19 +348,14 @@ export async function generateBlockPrompts(
   sections: { title: string; content: string; type: string }[],
   documentTitle: string
 ): Promise<TemplateSection[]> {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OpenAI API key not configured');
-  }
-  
-  const openai = new OpenAI({ apiKey, dangerouslyAllowBrowser: true });
-  
+  const openai = createBrowserOpenAIClient();
+
   const templateSections: TemplateSection[] = [];
-  
+
   for (const section of sections) {
     // Analyze the section content to create an appropriate prompt
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       temperature: 0.4,
       response_format: { type: 'json_object' },
       messages: [

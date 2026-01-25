@@ -4,6 +4,9 @@ import { Logger } from 'pino';
 import Redis from 'ioredis';
 import { Template, Block, getAllBlocks, generateId } from '@docgen/shared';
 
+// Parallel processing configuration
+const SECTION_BATCH_SIZE = parseInt(process.env.SECTION_BATCH_SIZE || '3', 10);
+
 interface GenerationJobData {
   runId: string;
   templateId: string;
@@ -18,10 +21,14 @@ interface JobContext {
   redis: Redis;
 }
 
-const MODEL_DEFAULT = process.env.MODEL_DEFAULT || 'gpt-4.1';
+// Model configuration - supports Azure OpenAI via MODEL_DEFAULT env var
+// Set MODEL_DEFAULT to "azure.gpt-4o" or similar for Azure deployments
+const MODEL_DEFAULT = process.env.MODEL_DEFAULT || 'gpt-4o';
 
+// OpenAI client configuration - supports custom base URL for Azure or proxies
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  ...(process.env.OPENAI_BASE_URL && { baseURL: process.env.OPENAI_BASE_URL }),
 });
 
 export async function processDocumentGeneration(
@@ -75,20 +82,14 @@ export async function processDocumentGeneration(
       },
     });
 
-    // Process blocks
+    // Process blocks in parallel batches for better performance
+    // Blocks are processed in batches of SECTION_BATCH_SIZE for faster completion
     const blockOutputs: Record<string, unknown> = {};
     let processedBlocks = 0;
 
-    for (const block of blocks) {
+    // Process a single block and return the result
+    const processBlock = async (block: Block): Promise<void> => {
       try {
-        await prisma.generationRun.update({
-          where: { id: runId },
-          data: {
-            currentBlockId: block.id,
-            progress: (processedBlocks / blocks.length) * 100,
-          },
-        });
-
         // Publish progress via Redis
         await redis.publish(`generation:${runId}`, JSON.stringify({
           type: 'block_started',
@@ -148,7 +149,7 @@ export async function processDocumentGeneration(
 
       } catch (error) {
         logger.error({ error, blockId: block.id }, 'Failed to generate block');
-        
+
         // Create error gap
         await prisma.gapQuestion.create({
           data: {
@@ -159,7 +160,33 @@ export async function processDocumentGeneration(
             status: 'OPEN',
           },
         });
+        processedBlocks++;
       }
+    };
+
+    // Process blocks in batches for parallelization
+    // Static/user blocks are fast, LLM blocks benefit from parallel API calls
+    logger.info({ runId, batchSize: SECTION_BATCH_SIZE }, 'Processing blocks in parallel batches');
+
+    for (let i = 0; i < blocks.length; i += SECTION_BATCH_SIZE) {
+      const batch = blocks.slice(i, i + SECTION_BATCH_SIZE);
+
+      // Update run progress at batch start
+      await prisma.generationRun.update({
+        where: { id: runId },
+        data: {
+          currentBlockId: batch[0].id,
+          progress: (processedBlocks / blocks.length) * 100,
+        },
+      });
+
+      // Process batch in parallel
+      await Promise.allSettled(batch.map(processBlock));
+
+      logger.info(
+        { runId, batchIndex: Math.floor(i / SECTION_BATCH_SIZE) + 1, processedBlocks, totalBlocks: blocks.length },
+        'Batch completed'
+      );
     }
 
     // Build TipTap document

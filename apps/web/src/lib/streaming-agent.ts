@@ -11,6 +11,10 @@ import OpenAI from 'openai';
 import { EvidenceAgentContext, ThinkingStep } from './evidence-agent';
 import { EvidenceBundle, retrieveEvidence } from './evidence-first';
 import { getAvailableTools, executeTool, formatToolResultForDocument, ToolContext } from './llm-tools';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 export interface StreamingChunk {
   type: 'thinking' | 'content' | 'tool' | 'chart' | 'complete';
@@ -101,7 +105,7 @@ async function streamTextGeneration(
   onStream: StreamCallback
 ): Promise<StreamingResult> {
   const stream = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -172,7 +176,7 @@ async function generateWithToolsNoStream(
   ];
 
   let response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages,
     temperature: 0.3,
     max_tokens: 2000,
@@ -201,24 +205,50 @@ async function generateWithToolsNoStream(
       const toolResult = await executeTool(toolName, toolArgs, toolContext);
       const formatted = formatToolResultForDocument(toolName, toolResult);
 
-      if (toolName === 'generate_chart' && formatted.generatedImage) {
-        generatedImages.push({
-          base64: formatted.generatedImage.base64,
-          mimeType: formatted.generatedImage.mimeType,
-          description: toolArgs.description || 'Chart',
-        });
-
+      if (toolName === 'generate_chart') {
         executedCode = formatted.executedCode;
 
-        // Emit chart immediately
-        onStream({
-          type: 'chart',
-          data: {
-            image: formatted.generatedImage,
-            description: toolArgs.description,
-          },
-          timestamp: Date.now(),
-        });
+        // Handle multiple charts from a single tool call (progressive emission)
+        if (formatted.generatedImages && formatted.generatedImages.length > 0) {
+          for (let i = 0; i < formatted.generatedImages.length; i++) {
+            const img = formatted.generatedImages[i];
+            generatedImages.push({
+              base64: img.base64,
+              mimeType: img.mimeType,
+              description: img.description || toolArgs.description || `Chart ${generatedImages.length}`,
+            });
+
+            // Emit each chart progressively as it arrives
+            onStream({
+              type: 'chart',
+              data: {
+                image: img,
+                description: img.description || toolArgs.description,
+                index: generatedImages.length - 1,
+                total: formatted.generatedImages.length,
+              },
+              timestamp: Date.now(),
+            });
+          }
+        } else if (formatted.generatedImage) {
+          // Single chart - backward compatibility
+          generatedImages.push({
+            base64: formatted.generatedImage.base64,
+            mimeType: formatted.generatedImage.mimeType,
+            description: toolArgs.description || 'Chart',
+          });
+
+          onStream({
+            type: 'chart',
+            data: {
+              image: formatted.generatedImage,
+              description: toolArgs.description,
+              index: generatedImages.length - 1,
+              total: 1,
+            },
+            timestamp: Date.now(),
+          });
+        }
       }
 
       messages.push({ role: 'assistant', content: null, tool_calls: [toolCall] });
@@ -231,7 +261,7 @@ async function generateWithToolsNoStream(
 
     // Continue conversation
     response = await ctx.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages,
       temperature: 0.3,
       max_tokens: 2000,

@@ -4,11 +4,14 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 
 // ===========================================
 // Configuration
+// Supports Azure OpenAI via OPENAI_BASE_URL and MODEL_DEFAULT env vars
+// Set MODEL_DEFAULT to "azure.gpt-4o" or your deployment name for Azure
 // ===========================================
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const MODEL_DEFAULT = process.env.MODEL_DEFAULT || 'gpt-4.1';
-const MODEL_FAST = process.env.MODEL_FAST || 'gpt-4.1-mini';
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL;
+const MODEL_DEFAULT = process.env.MODEL_DEFAULT || 'gpt-4o';
+const MODEL_FAST = process.env.MODEL_FAST || 'gpt-4o-mini';
 
 // ===========================================
 // Types
@@ -59,6 +62,7 @@ export class ModelGateway {
 
     this.client = new OpenAI({
       apiKey: OPENAI_API_KEY,
+      ...(OPENAI_BASE_URL && { baseURL: OPENAI_BASE_URL }),
     });
 
     this.defaultConfig = {

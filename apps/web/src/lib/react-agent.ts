@@ -20,6 +20,10 @@ import {
   formatToolResultForDocument,
   ToolContext,
 } from './llm-tools';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // =============================================================================
 // TYPES
@@ -111,7 +115,7 @@ async function think(
     : '';
 
   const response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       {
         role: 'system',
@@ -169,7 +173,8 @@ async function search(
 ): Promise<SearchResult[]> {
   const results: SearchResult[] = [];
   
-  for (const query of queries.slice(0, 3)) { // Limit searches
+  // Increase search limit from 3 to 5 for better comprehensiveness
+  for (const query of queries.slice(0, 5)) { // Limit searches
     try {
       const chunks = await semanticSearch(
         query, 
@@ -343,7 +348,7 @@ If the code doesn't contain what's needed for this section, adapt the section to
 
   // Initial API call with tools
   let response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -363,7 +368,7 @@ If the code doesn't contain what's needed for this section, adapt the section to
   ];
 
   let iterations = 0;
-  const maxIterations = 3;
+  const maxIterations = 5; // Increased from 3 for better comprehensiveness
 
   while (response.choices[0]?.message?.tool_calls && iterations < maxIterations) {
     iterations++;
@@ -436,7 +441,7 @@ If the code doesn't contain what's needed for this section, adapt the section to
     
     // Continue conversation with tool results
     response = await ctx.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages,
       temperature: 0.4,
       max_tokens: 1500,
@@ -561,7 +566,7 @@ export async function generateWithAgent(
   ctx: AgentContext,
   sectionTitle: string,
   sectionInstructions: string,
-  maxIterations: number = 3
+  maxIterations: number = 5 // Increased from 3 for better comprehensiveness
 ): Promise<AgentResult> {
   const blockTypeLabel = ctx.blockType === 'LLM_CHART' ? '📊 Chart' : ctx.blockType === 'LLM_TABLE' ? '📋 Table' : '📝 Text';
   console.log(`[Agent] Starting generation for: ${sectionTitle} (${ctx.blockType})`);
@@ -676,7 +681,7 @@ export async function generateWithAgent(
   // Fallback: generate a minimal response
   return {
     content: `This section requires information that was not found in the analyzed codebase. The available files are: ${ctx.availableFiles.slice(0, 5).join(', ')}.`,
-    citations: ctx.availableFiles.slice(0, 3),
+    citations: ctx.availableFiles.slice(0, 5), // Increased from 3 for better comprehensiveness
     confidence: 0.5,
     searchIterations: iterations,
     verificationPassed: false,
@@ -701,7 +706,7 @@ export async function initializeAgentMemory(
   ).join('\n');
   
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       {
         role: 'system',

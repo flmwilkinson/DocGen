@@ -11,6 +11,10 @@
  */
 
 import OpenAI from 'openai';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // =============================================================================
 // TYPES
@@ -720,7 +724,7 @@ export async function agenticAnalysis(
   // Agentic exploration - ask LLM what else to look for
   for (let i = 0; i < maxIterations; i++) {
     const exploreResponse = await context.openaiClient.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         {
           role: 'system',
@@ -770,7 +774,7 @@ If you have enough, respond with JSON:
   
   // Final answer after exploration
   const finalResponse = await context.openaiClient.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       {
         role: 'system',
@@ -976,7 +980,7 @@ async function generateChunkSummary(
   
   try {
     const response = await openaiClient.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         {
           role: 'system',

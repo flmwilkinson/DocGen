@@ -53,7 +53,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useProjectsStore, selectProject, selectRun, type GeneratedSection, type GeneratedBlock, type DocumentGap, type ChatMessage } from '@/store/projects';
+import { useProjectsStore, selectProject, selectRun, selectRunSectionsOrdered, type GeneratedSection, type GeneratedBlock, type DocumentGap, type ChatMessage } from '@/store/projects';
 import { analyzeGap, fixGap, processGapChat, type GapContext, type GapAnalysisResult } from '@/lib/gap-agent';
 
 // TipTap Toolbar Component
@@ -348,10 +348,17 @@ export default function DocumentEditorPage() {
     }
   };
   
-  // Store - use optimized selectors
-  const run = useProjectsStore(selectRun(runId));
-  const project = useProjectsStore(selectProject(projectId));
+  // Store - use optimized selectors with memoized selector functions
+  const runSelector = useMemo(() => selectRun(runId), [runId]);
+  const projectSelector = useMemo(() => selectProject(projectId), [projectId]);
+  const orderedSectionsSelector = useMemo(() => selectRunSectionsOrdered(runId), [runId]);
+
+  const run = useProjectsStore(runSelector);
+  const project = useProjectsStore(projectSelector);
   const updateRun = useProjectsStore((state) => state.updateRun);
+
+  // Get sections in stable order - prevents reordering during concurrent generation
+  const orderedSections = useProjectsStore(orderedSectionsSelector);
 
   // Chat messages from store or initialize
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -1224,7 +1231,8 @@ export default function DocumentEditorPage() {
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto p-2 custom-scrollbar">
-              {run.sections.map((section, index) => (
+              {/* Use orderedSections for stable ordering during concurrent generation */}
+              {orderedSections.map((section, index) => (
                 <div key={section.id}>
                   {/* Main section */}
                   <button
@@ -1338,7 +1346,7 @@ export default function DocumentEditorPage() {
                       {run.statusMessage || 'Generating document...'}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {run.sections.length} section{run.sections.length !== 1 ? 's' : ''} completed • {run.progress}% complete
+                      {orderedSections.length} section{orderedSections.length !== 1 ? 's' : ''} completed • {run.progress}% complete
                     </p>
                   </div>
                   <div className="w-32 h-2 bg-brand-orange/20 rounded-full overflow-hidden">
@@ -1371,7 +1379,8 @@ export default function DocumentEditorPage() {
                 // Ensure white background in light mode
                 "light:bg-white"
               )}>
-            {run.sections.map((section) => {
+            {/* Use orderedSections for stable ordering during concurrent generation */}
+            {orderedSections.map((section) => {
               // Check if this section has a gap (either being fixed or just highlighted)
               const gapForSection = activeGap && (activeGap.sectionId === section.id || activeGap.sectionTitle === section.title) 
                 ? activeGap 

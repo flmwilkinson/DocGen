@@ -9,19 +9,13 @@
 
 import OpenAI from 'openai';
 import { DocumentGap, GeneratedSection, GeneratedBlock } from './openai';
+import { createBrowserOpenAIClient, getModelName } from './openai-config';
 
-// Get OpenAI client
-const getOpenAIClient = () => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey || apiKey === 'sk-...' || apiKey.includes('...')) {
-    throw new Error('OpenAI API key not configured');
-  }
-  return new OpenAI({ 
-    apiKey,
-    dangerouslyAllowBrowser: true,
-    timeout: 60000,
-  });
-};
+// Get OpenAI client using centralized config (supports Azure and custom endpoints)
+const getOpenAIClient = () => createBrowserOpenAIClient();
+
+// Get configured model name
+const LLM_MODEL = getModelName('fast');
 
 export interface GapContext {
   gap: DocumentGap;
@@ -111,7 +105,7 @@ Respond with JSON:
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -202,7 +196,7 @@ Generate the improved section content. If the user's information is insufficient
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -274,7 +268,7 @@ Be conversational and helpful. If the user provides information, acknowledge it 
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Previous conversation:\n${historyContext}\n\nUser's new message: ${message}` }

@@ -109,6 +109,8 @@ export interface GenerationRun {
   gaps?: DocumentGap[];
   // Chat history
   chatMessages?: ChatMessage[];
+  // Section ordering - ensures consistent section display during concurrent generation
+  sectionOrder?: string[]; // Array of section IDs in template order
   // Evidence quality metrics
   qualityMetrics?: {
     tier1CitationPercent: number;
@@ -592,4 +594,39 @@ export const selectProjectRuns = (projectId: string) => (state: ProjectsState) =
 /** Select a specific run by ID - stable reference */
 export const selectRun = (id: string) => (state: ProjectsState) =>
   state.runs.find(r => r.id === id);
+
+/**
+ * Select run sections in stable order
+ * Uses sectionOrder array if available, otherwise maintains existing order
+ * This prevents section reordering during concurrent generation
+ */
+export const selectRunSectionsOrdered = (runId: string) => (state: ProjectsState) => {
+  const run = state.runs.find(r => r.id === runId);
+  if (!run?.sections) return [];
+
+  // If no sectionOrder defined, return sections as-is
+  if (!run.sectionOrder || run.sectionOrder.length === 0) {
+    return run.sections;
+  }
+
+  // Create a map for O(1) lookup
+  const sectionMap = new Map(run.sections.map(s => [s.id, s]));
+
+  // Return sections in the defined order, then any new sections not in order
+  const ordered: GeneratedSection[] = [];
+  for (const id of run.sectionOrder) {
+    const section = sectionMap.get(id);
+    if (section) {
+      ordered.push(section);
+      sectionMap.delete(id);
+    }
+  }
+
+  // Append any sections not in the order list (shouldn't happen normally)
+  for (const section of sectionMap.values()) {
+    ordered.push(section);
+  }
+
+  return ordered;
+};
 

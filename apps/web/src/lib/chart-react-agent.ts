@@ -17,6 +17,10 @@ import {
   ToolContext,
 } from './llm-tools';
 import { EvidenceBundle } from './evidence-first';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // =============================================================================
 // TYPES
@@ -204,7 +208,7 @@ Return a JSON object with this structure:
 }`;
 
   const response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `Create a comprehensive analysis plan for: ${sectionTitle}` },
@@ -366,7 +370,7 @@ else:
 Return ONLY the Python code, no explanations. Make sure to use the EXACT column names from the ACTUAL AVAILABLE COLUMNS list above.`;
 
         const codeResponse = await ctx.openai.chat.completions.create({
-          model: 'gpt-4o-mini',
+          model: LLM_MODEL,
           messages: [
             { role: 'system', content: `You are a Python data visualization expert. Generate clean, working matplotlib code.
 
@@ -651,7 +655,7 @@ df = load_data('${analysisPlan.dataFile}')
 Return ONLY the Python code, no explanations.`;
 
       const codeResponse = await ctx.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: LLM_MODEL,
         messages: [
           { role: 'system', content: `You are a Python data analysis expert. Generate clean, working pandas/numpy code.
 
@@ -811,7 +815,7 @@ For example, if discussing outstanding amounts, write:
 Place each chart immediately after the sentence where you first mention what it shows. DO NOT put all charts at the end.`;
 
   const response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: 'You are a documentation expert. Write clear, comprehensive documentation that references specific charts, statistics, and findings.' },
       { role: 'user', content: narrativePrompt },

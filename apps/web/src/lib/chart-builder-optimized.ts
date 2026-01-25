@@ -1,5 +1,5 @@
 /**
- * Optimized Chart Builder - Consolidated LLM Calls
+ * Optimized Chart Builder - Consolidated LLM Calls with Progressive Rendering
  *
  * Instead of making 10-15 LLM calls per chart block, this generates everything in ONE call:
  * 1. Analysis plan (what charts to create)
@@ -7,14 +7,30 @@
  * 3. Python code for statistical analysis
  * 4. Narrative text
  *
- * Then executes all charts in PARALLEL for maximum speed.
+ * Then executes all charts in PARALLEL with PROGRESSIVE RENDERING.
+ * Charts are emitted to the UI as each one completes, not all at once.
  *
- * Expected impact: 70% latency reduction for chart blocks
+ * Expected impact: 70% latency reduction + immediate visual feedback
  */
 
 import OpenAI from 'openai';
 import { executeTool, ToolContext } from './llm-tools';
 import { DataSchemaEvidence, EvidenceBundle } from './evidence-first';
+import { getModelName } from './openai-config';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
+
+/**
+ * Callback for progressive chart rendering - called as each chart completes
+ */
+export type ChartProgressCallback = (chart: {
+  index: number;
+  total: number;
+  base64: string;
+  mimeType: string;
+  description: string;
+}) => void;
 
 export interface OptimizedChartResult {
   content: string;
@@ -45,6 +61,8 @@ export interface ChartGenerationPlan {
 /**
  * Generate charts, analysis, and documentation in ONE consolidated LLM call
  * This replaces the multi-step ReAct workflow for better performance
+ *
+ * @param onChartReady - Optional callback for progressive rendering. Called as each chart completes.
  */
 export async function generateChartsOptimized(
   openai: OpenAI,
@@ -52,7 +70,8 @@ export async function generateChartsOptimized(
   sectionInstructions: string,
   evidenceBundle: EvidenceBundle,
   dataFiles: Array<{ path: string; content?: string; url?: string }>,
-  toolContext: ToolContext
+  toolContext: ToolContext,
+  onChartReady?: ChartProgressCallback
 ): Promise<OptimizedChartResult> {
   console.log(`[ChartOptimized] Generating charts for: ${sectionTitle}`);
 
@@ -64,18 +83,41 @@ export async function generateChartsOptimized(
 
   console.log(`[ChartOptimized] Plan: ${plan.charts.length} charts, ${plan.analysis ? '1 analysis' : 'no analysis'}, ${plan.summaryTable ? '1 table' : 'no table'}`);
 
-  // Execute all charts in PARALLEL
+  // Track charts for progressive rendering
+  const totalCharts = plan.charts.length;
+
+  // Execute charts with PROGRESSIVE RENDERING
+  // Use Promise.allSettled to handle failures gracefully and emit results as they complete
   const chartPromises = plan.charts.map((chart, idx) =>
     executeTool('generate_chart', {
       python_code: chart.pythonCode,
       description: chart.description,
     }, toolContext)
-      .then(result => ({
-        index: idx,
-        result,
-        description: chart.description,
-        chartType: chart.chartType,
-      }))
+      .then(result => {
+        const chartResult = {
+          index: idx,
+          result,
+          description: chart.description,
+          chartType: chart.chartType,
+        };
+
+        // PROGRESSIVE: Emit chart immediately when ready
+        if (result.success && onChartReady) {
+          const formatted = formatChartResult(result);
+          if (formatted.generatedImage) {
+            console.log(`[ChartOptimized] Chart ${idx + 1}/${totalCharts} ready - emitting progressively`);
+            onChartReady({
+              index: idx,
+              total: totalCharts,
+              base64: formatted.generatedImage.base64,
+              mimeType: formatted.generatedImage.mimeType,
+              description: chart.description,
+            });
+          }
+        }
+
+        return chartResult;
+      })
       .catch(error => ({
         index: idx,
         result: { success: false, error: error.message },
@@ -84,9 +126,16 @@ export async function generateChartsOptimized(
       }))
   );
 
-  const chartResults = await Promise.all(chartPromises);
+  // Use allSettled to ensure all complete even if some fail
+  const chartSettled = await Promise.allSettled(chartPromises);
 
-  // Extract successful charts
+  // Extract results, maintaining order
+  const chartResults = chartSettled
+    .map(settled => settled.status === 'fulfilled' ? settled.value : null)
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) => a.index - b.index);
+
+  // Collect successful charts into final arrays
   const generatedImages: Array<{ base64: string; mimeType: string; description: string }> = [];
   let executedCode = '';
 
@@ -197,7 +246,7 @@ ${dataSummary}
 Create a comprehensive plan with charts, analysis, table, and narrative.`;
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

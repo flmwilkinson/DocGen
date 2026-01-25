@@ -7,7 +7,8 @@
       "Bash(taskkill:*)",
       "Bash(powershell -Command \"Stop-Process -Id 39492 -Force\")",
       "Bash(cut:*)",
-      "Bash(powershell -Command \"Stop-Process -Id 52656 -Force\")"
+      "Bash(powershell -Command \"Stop-Process -Id 52656 -Force\")",
+      "Bash(xargs cat:*)"
     ]
   }
 }

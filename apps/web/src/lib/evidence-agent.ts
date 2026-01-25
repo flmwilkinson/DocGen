@@ -19,6 +19,7 @@
 
 import OpenAI from 'openai';
 import { CodeIntelligenceResult, CodeChunk } from './code-intelligence';
+import { getModelName } from './openai-config';
 import {
   EvidenceBundle,
   EvidenceFirstConfig,
@@ -40,6 +41,9 @@ import {
   ToolContext,
 } from './llm-tools';
 import { fetchDataFileWithCache, CachedDataFile } from './data-file-cache';
+
+// Get configured model name (supports Azure and custom endpoints)
+const LLM_MODEL = getModelName('fast');
 
 // =============================================================================
 // TYPES
@@ -800,7 +804,7 @@ export async function generateSectionWithEvidence(
   
   // Initial API call with tools
   let response = await ctx.openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: LLM_MODEL,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -945,7 +949,7 @@ export async function generateSectionWithEvidence(
     const nextToolChoice: 'auto' | undefined = 'auto';
     
     response = await ctx.openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: LLM_MODEL,
       messages: truncatedMessages,
       temperature: 0.3,
       max_tokens: 2000,

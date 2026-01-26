@@ -42,6 +42,9 @@ uploads/
 tmp/
 temp/
 
+# Local mode data storage
+data/
+
 # Generated files
 *.generated.*
 prisma/generated/

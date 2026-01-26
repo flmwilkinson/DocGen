@@ -1,9 +1,19 @@
 /**
  * Python Sandbox Client
- * 
- * Communicates with the Python sandbox service to execute code,
- * generate charts, and perform data analysis.
+ *
+ * Supports two execution modes:
+ * - PYTHON_EXECUTOR=sandbox (default) - Uses Docker sandbox service
+ * - PYTHON_EXECUTOR=local - Uses local Python installation (no Docker needed)
+ *
+ * For local mode, ensure Python 3.8+ with pandas, numpy, matplotlib installed.
  */
+
+import {
+  generateChartLocal,
+  isPythonAvailable,
+  transferFilesLocal,
+  executeLocalPython,
+} from './local-python-executor';
 
 export interface ExecutionResult {
   stdout: string;
@@ -35,8 +45,16 @@ export interface ChartResult {
   structuredResult?: Record<string, unknown>; // Structured results (schema info, etc.)
 }
 
-// Get sandbox URL from environment or use default
+// Execution mode: 'local' for direct Python, 'sandbox' for Docker service
+const PYTHON_EXECUTOR = process.env.NEXT_PUBLIC_PYTHON_EXECUTOR || process.env.PYTHON_EXECUTOR || 'local';
 const SANDBOX_URL = process.env.NEXT_PUBLIC_SANDBOX_PYTHON_URL || 'http://localhost:8001';
+
+/**
+ * Check if we're using local Python execution
+ */
+export function isLocalPythonMode(): boolean {
+  return PYTHON_EXECUTOR === 'local';
+}
 
 export interface TransferredFile {
   path: string;
@@ -59,9 +77,27 @@ export async function transferFilesToSandbox(
   executionId: string,
   files: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>
 ): Promise<TransferFilesResult> {
+  // Use local transfer if in local mode
+  if (isLocalPythonMode()) {
+    try {
+      console.log(`[LocalPython] Transferring ${files.length} files for execution ${executionId}`);
+      const result = await transferFilesLocal(executionId, files);
+      return {
+        executionId,
+        dataDir: result.dataDir,
+        transferred: result.transferred.map((p) => ({ path: p, fullPath: p, size: 0 })),
+        errors: [],
+      };
+    } catch (error) {
+      console.error(`[LocalPython] Transfer files failed:`, error);
+      throw error;
+    }
+  }
+
+  // Docker sandbox mode
   try {
     console.log(`[Sandbox] Transferring ${files.length} files for execution ${executionId}`);
-    
+
     const response = await fetch(`${SANDBOX_URL}/transfer-files`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -101,9 +137,22 @@ export async function transferFilesToSandbox(
 }
 
 /**
- * Check if the sandbox service is available
+ * Check if Python execution is available (either local or sandbox)
  */
 export async function isSandboxAvailable(): Promise<boolean> {
+  // Local mode - check if Python is available
+  if (isLocalPythonMode()) {
+    try {
+      const available = await isPythonAvailable();
+      console.log(`[LocalPython] Available: ${available}`);
+      return available;
+    } catch (error) {
+      console.warn(`[LocalPython] Not available:`, error instanceof Error ? error.message : error);
+      return false;
+    }
+  }
+
+  // Sandbox mode - check Docker service
   try {
     console.log(`[Sandbox] Checking availability at ${SANDBOX_URL}/health`);
     const response = await fetch(`${SANDBOX_URL}/health`, {
@@ -196,7 +245,11 @@ export async function downloadFileAsBase64(
 /**
  * Generate a chart using Python code execution
  * This is the main function used by the LLM agent
- * 
+ *
+ * Supports two modes:
+ * - Local mode (PYTHON_EXECUTOR=local): Runs Python directly on host
+ * - Sandbox mode (PYTHON_EXECUTOR=sandbox): Uses Docker service
+ *
  * @param code - Python code to execute
  * @param context - Optional context including data files to transfer
  */
@@ -208,6 +261,13 @@ export async function generateChart(
     dataFiles?: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>;
   }
 ): Promise<ChartResult> {
+  // Use local Python if in local mode
+  if (isLocalPythonMode()) {
+    console.log('[LocalPython] Using local Python execution');
+    return generateChartLocal(code, context);
+  }
+
+  // Docker sandbox mode
   const startTime = Date.now();
 
   // Generate execution ID for this chart

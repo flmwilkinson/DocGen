@@ -379,11 +379,50 @@ Update your `apps/web/.env.local`:
 ```env
 OPENAI_API_KEY="sk-your-key-here"
 NEXT_PUBLIC_OPENAI_API_KEY="sk-your-key-here"
+
+# Model configuration (defaults work with standard OpenAI)
+MODEL_DEFAULT="gpt-4o"
+MODEL_FAST="gpt-4o-mini"
+MODEL_EMBEDDING="text-embedding-3-small"
+
+# Browser-side model names (must match server-side)
+NEXT_PUBLIC_OPENAI_MODEL_DEFAULT="gpt-4o"
+NEXT_PUBLIC_OPENAI_MODEL_FAST="gpt-4o-mini"
 ```
 
-### Option B: Corporate Proxy / Azure OpenAI / Custom Endpoint
+### Option B: Azure OpenAI
 
-If you're accessing OpenAI through your organization's proxy, Azure OpenAI, or another OpenAI-compatible API:
+If you're using Azure OpenAI, configure the following:
+
+```env
+# Azure OpenAI API key
+OPENAI_API_KEY="your-azure-api-key"
+NEXT_PUBLIC_OPENAI_API_KEY="your-azure-api-key"
+
+# Azure OpenAI endpoint
+OPENAI_BASE_URL="https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT"
+NEXT_PUBLIC_OPENAI_BASE_URL="https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT"
+
+# Model names should match your Azure deployment names
+MODEL_DEFAULT="azure.gpt-4o"
+MODEL_FAST="azure.gpt-4o-mini"
+MODEL_EMBEDDING="text-embedding-3-small"
+
+# Browser-side model names
+NEXT_PUBLIC_OPENAI_MODEL_DEFAULT="azure.gpt-4o"
+NEXT_PUBLIC_OPENAI_MODEL_FAST="azure.gpt-4o-mini"
+```
+
+**Azure OpenAI Setup Steps:**
+1. Create an Azure OpenAI resource in Azure Portal
+2. Deploy your models (e.g., gpt-4o, gpt-4o-mini, text-embedding-3-small)
+3. Get your API key from "Keys and Endpoint" in your Azure OpenAI resource
+4. Set the base URL to your deployment endpoint
+5. Use your deployment names as model names in the configuration
+
+### Option C: Corporate Proxy / Custom Endpoint
+
+For corporate proxies or other OpenAI-compatible APIs:
 
 ```env
 # Your organization's API key
@@ -393,25 +432,31 @@ NEXT_PUBLIC_OPENAI_API_KEY="your-corporate-api-key"
 # Your organization's API endpoint
 OPENAI_BASE_URL="https://your-proxy.company.com/v1"
 NEXT_PUBLIC_OPENAI_BASE_URL="https://your-proxy.company.com/v1"
+
+# Model names (adjust to your provider's naming)
+MODEL_DEFAULT="gpt-4o"
+MODEL_FAST="gpt-4o-mini"
 ```
 
 **Common base URL formats:**
+
 | Provider | Base URL Format |
 |----------|-----------------|
-| Corporate Proxy | `https://your-proxy.company.com/v1` |
+| Direct OpenAI | Not needed (default) |
 | Azure OpenAI | `https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT` |
+| Corporate Proxy | `https://your-proxy.company.com/v1` |
 | Local LLM (Ollama) | `http://localhost:11434/v1` |
 | Other Compatible APIs | Check your provider's documentation |
 
 ### Models Used
 
-| Variable | Model | Purpose |
-|----------|-------|---------|
+| Variable | Default Model | Purpose |
+|----------|---------------|---------|
 | `MODEL_DEFAULT` | `gpt-4o` | High-quality content generation |
-| `MODEL_FAST` | `gpt-4o-mini` | Fast operations, summaries |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Vector embeddings for search |
+| `MODEL_FAST` | `gpt-4o-mini` | Fast operations, agent tasks |
+| `MODEL_EMBEDDING` | `text-embedding-3-small` | Vector embeddings for semantic search |
 
-**Note:** If using Azure OpenAI or another provider, you may need to adjust the model names to match your deployment names.
+**Important:** When using Azure OpenAI or other providers, set the model names to match your deployment names exactly.
 
 ### Usage & Billing
 
@@ -674,18 +719,32 @@ docker-compose up -d sandbox-python
 | `GITHUB_CLIENT_ID` | GitHub OAuth Client ID | `Ov23li...` |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth Client Secret | Secret string |
 
-### Optional Variables
+### OpenAI Configuration Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENAI_BASE_URL` | Custom OpenAI API endpoint (corporate proxy, Azure, etc.) | `https://api.openai.com/v1` |
-| `NEXT_PUBLIC_OPENAI_BASE_URL` | Custom OpenAI API endpoint (client-side) | `https://api.openai.com/v1` |
+| `OPENAI_BASE_URL` | Custom API endpoint (Azure, proxy) | Not set (uses OpenAI default) |
+| `NEXT_PUBLIC_OPENAI_BASE_URL` | Custom API endpoint (client-side) | Not set |
+| `MODEL_DEFAULT` | Primary LLM model (server-side) | `gpt-4o` |
+| `MODEL_FAST` | Fast LLM model (server-side) | `gpt-4o-mini` |
+| `MODEL_EMBEDDING` | Embedding model (server-side) | `text-embedding-3-small` |
+| `NEXT_PUBLIC_OPENAI_MODEL_DEFAULT` | Primary LLM model (browser) | `gpt-4o` |
+| `NEXT_PUBLIC_OPENAI_MODEL_FAST` | Fast LLM model (browser) | `gpt-4o-mini` |
+| `NEXT_PUBLIC_OPENAI_MODEL_EMBEDDING` | Embedding model (browser) | `text-embedding-3-small` |
+| `OPENAI_EMBEDDING_MODEL` | Legacy embedding model var | `text-embedding-3-small` |
+
+**Note:** For Azure OpenAI or custom providers, set model names to match your deployment names (e.g., `azure.gpt-4o`).
+
+### Other Optional Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `GITHUB_TOKEN` | Personal access token for private repos | - |
-| `MODEL_DEFAULT` | Default OpenAI model | `gpt-4o` |
-| `MODEL_FAST` | Fast OpenAI model | `gpt-4o-mini` |
-| `OPENAI_EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
+| `NEXT_PUBLIC_GITHUB_TOKEN` | GitHub token (client-side) | - |
 | `NODE_ENV` | Environment mode | `development` |
 | `LOG_LEVEL` | Logging level | `debug` |
+| `WORKER_CONCURRENCY` | Number of concurrent worker jobs | `5` |
+| `SECTION_BATCH_SIZE` | Parallel block processing batch size | `3` |
 | `SANDBOX_TIMEOUT_SEC` | Sandbox execution timeout | `60` |
 | `SANDBOX_MEMORY_LIMIT_MB` | Sandbox memory limit | `512` |
 

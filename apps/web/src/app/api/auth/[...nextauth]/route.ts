@@ -2,13 +2,23 @@ import NextAuth, { type NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GitHubProvider from 'next-auth/providers/github';
 
-// Demo user for local development
+// Auth mode: 'local' for credentials only, 'github' for GitHub OAuth, 'both' for both
+const AUTH_MODE = process.env.AUTH_MODE || 'local';
+
+// Demo user for local development (always available)
 const DEMO_USER = {
   id: '1',
   email: 'demo@docgen.ai',
   name: 'Demo User',
   password: 'demo123',
 };
+
+// Additional local users (can be configured via environment)
+// Format: email:password:name (separated by |)
+const ADDITIONAL_USERS = process.env.LOCAL_USERS?.split('|').map(u => {
+  const [email, password, name] = u.split(':');
+  return { id: email, email, password, name: name || email.split('@')[0] };
+}) || [];
 
 // Stable secret for development - ensures sessions persist across restarts
 const DEV_SECRET = 'docgen-development-secret-do-not-use-in-production-12345';
@@ -28,8 +38,7 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // In production, validate against database
-        // For now, use demo credentials
+        // Check demo user
         if (
           credentials.email === DEMO_USER.email &&
           credentials.password === DEMO_USER.password
@@ -41,7 +50,19 @@ export const authOptions: NextAuthOptions = {
           };
         }
 
-        // TODO: Implement actual database authentication
+        // Check additional local users (from environment)
+        const localUser = ADDITIONAL_USERS.find(
+          u => u.email === credentials.email && u.password === credentials.password
+        );
+        if (localUser) {
+          return {
+            id: localUser.id,
+            email: localUser.email,
+            name: localUser.name,
+          };
+        }
+
+        // TODO: Database authentication (when needed)
         // const user = await prisma.user.findUnique({
         //   where: { email: credentials.email },
         // });
@@ -52,20 +73,20 @@ export const authOptions: NextAuthOptions = {
         return null;
       },
     }),
-    GitHubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID || '',
-      clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-      authorization: {
-        params: {
-          scope: 'read:user user:email repo', // Request repo access for private repos
-        },
-      },
-      // Only enable if credentials are configured
-      ...(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET ? {} : {
-        // If not configured, this provider will be disabled
-        // We'll show an error message in the UI instead
-      }),
-    }),
+    // Only include GitHub provider if AUTH_MODE is 'github' or 'both' AND credentials are configured
+    ...((AUTH_MODE === 'github' || AUTH_MODE === 'both') &&
+       process.env.GITHUB_CLIENT_ID &&
+       process.env.GITHUB_CLIENT_SECRET
+      ? [GitHubProvider({
+          clientId: process.env.GITHUB_CLIENT_ID,
+          clientSecret: process.env.GITHUB_CLIENT_SECRET,
+          authorization: {
+            params: {
+              scope: 'read:user user:email repo', // Request repo access for private repos
+            },
+          },
+        })]
+      : []),
   ],
   pages: {
     signIn: '/login',

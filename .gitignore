@@ -12,6 +12,9 @@ out/
 .env
 .env.local
 .env.*.local
+.env*copy*
+*copy*.env*
+*.env
 
 # IDE
 .idea/

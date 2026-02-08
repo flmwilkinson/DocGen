@@ -103,10 +103,21 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
   callbacks: {
+    async signIn({ user, account, profile }) {
+      // Log sign-in attempts for debugging
+      console.log('[NextAuth] Sign-in attempt:', {
+        provider: account?.provider,
+        userId: user?.id,
+        email: user?.email,
+        hasProfile: !!profile,
+      });
+      return true; // Allow sign-in
+    },
     async jwt({ token, user, account }) {
       // Store GitHub access token in JWT
       if (account?.provider === 'github' && account.access_token) {
         token.githubAccessToken = account.access_token;
+        console.log('[NextAuth] GitHub token stored in JWT');
       }
       if (user) {
         token.id = user.id;
@@ -121,9 +132,17 @@ export const authOptions: NextAuthOptions = {
       (session as any).githubAccessToken = token.githubAccessToken;
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // Log redirects for debugging
+      console.log('[NextAuth] Redirect:', { url, baseUrl });
+      // Allow relative URLs and URLs starting with base
+      if (url.startsWith('/')) return `${baseUrl}${url}`;
+      if (url.startsWith(baseUrl)) return url;
+      return baseUrl;
+    },
   },
-  // Reduce unnecessary debug logging
-  debug: false,
+  // Enable debug mode temporarily to diagnose GitHub OAuth issue
+  debug: process.env.NODE_ENV === 'development',
 };
 
 const handler = NextAuth(authOptions);

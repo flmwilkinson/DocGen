@@ -8,7 +8,10 @@
       "Bash(powershell -Command \"Stop-Process -Id 39492 -Force\")",
       "Bash(cut:*)",
       "Bash(powershell -Command \"Stop-Process -Id 52656 -Force\")",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)",
+      "Bash(node:*)"
     ]
   }
 }

@@ -11,7 +11,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const PYTHON_CMD = process.env.PYTHON_CMD || (os.platform() === 'win32' ? 'python' : 'python3');
+// Python command resolution:
+// 1. Use PYTHON_CMD env var if set (can include args like "py -3.11")
+// 2. On Windows, use 'py -3.11' (Python Launcher for Python 3.11 specifically)
+//    Note: We specify 3.11 because newer/older versions may have missing packages
+// 3. Fall back to 'python3' on Unix
+const PYTHON_CMD_RAW = process.env.PYTHON_CMD || (os.platform() === 'win32' ? 'py -3.11' : 'python3');
+const PYTHON_CMD_PARTS = PYTHON_CMD_RAW.split(' ');
+const PYTHON_CMD = PYTHON_CMD_PARTS[0];
+const PYTHON_ARGS = PYTHON_CMD_PARTS.slice(1);
 
 interface ExecuteRequest {
   action: 'execute' | 'check' | 'transfer';
@@ -43,7 +51,7 @@ function getExecutionDir(executionId: string): string {
 
 async function checkPythonAvailable(): Promise<{ available: boolean; version?: string; error?: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(PYTHON_CMD, ['--version']);
+    const proc = spawn(PYTHON_CMD, [...PYTHON_ARGS, '--version']);
     let output = '';
 
     proc.stdout.on('data', (data) => { output += data.toString(); });
@@ -203,7 +211,7 @@ if plt.get_fignums():
   fs.writeFileSync(scriptPath, wrappedCode, 'utf-8');
 
   return new Promise((resolve) => {
-    const proc = spawn(PYTHON_CMD, [scriptPath], {
+    const proc = spawn(PYTHON_CMD, [...PYTHON_ARGS, scriptPath], {
       cwd: execDir,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });

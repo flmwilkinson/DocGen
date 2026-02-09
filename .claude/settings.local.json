@@ -11,7 +11,10 @@
       "Bash(xargs cat:*)",
       "Bash(docker exec:*)",
       "Bash(docker ps:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(\"C:\\\\Users\\\\flmwi\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\python.exe\" --version)",
+      "Bash(py -3.11 -m pip install:*)",
+      "Bash(py:*)"
     ]
   }
 }

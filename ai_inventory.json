@@ -1,0 +1,213 @@
+{
+  "upserts": [
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "model_usage",
+        "summary": "OpenAI AI usage detected: unknown, chat.completions.create, embeddings.create, model configuration, SDK imports, API key references, API calls (5386 evidence items)",
+        "source": "AI Package Dependency (npm)"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": "gpt-4o",
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": "gpt-4o-mini",
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": "gpt-4o-mini",
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": null,
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": null,
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": null,
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": null,
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "FoundationModel",
+      "fields": {
+        "provider": "OPENAI",
+        "family": "GPT",
+        "version": null,
+        "deploymentMode": "API"
+      },
+      "confidence": 0.95,
+      "requiredReviewerRoles": [
+        "MAINTAINER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "connector",
+        "summary": "pgvector database connector detected (1 evidence items)",
+        "source": "pgvector Extension"
+      },
+      "confidence": 0.85,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "potential_usage",
+        "summary": "AI usage detected: RAG & Fine-Tuning References (26 evidence items)",
+        "source": "RAG & Fine-Tuning References"
+      },
+      "confidence": 0.65,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "model_usage",
+        "summary": "AI usage detected: Chat Message Construction (83 evidence items)",
+        "source": "Chat Message Construction"
+      },
+      "confidence": 0.68,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "potential_usage",
+        "summary": "AI usage detected: Generative AI Terminology (83 evidence items)",
+        "source": "Generative AI Terminology"
+      },
+      "confidence": 0.6,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "model_usage",
+        "summary": "AI usage detected: System Prompt Definition (56 evidence items)",
+        "source": "System Prompt Definition"
+      },
+      "confidence": 0.85,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "model_usage",
+        "summary": "AI usage detected: Structured Output Schema (8 evidence items)",
+        "source": "Structured Output Schema"
+      },
+      "confidence": 0.82,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    },
+    {
+      "objectType": "AIUsage",
+      "fields": {
+        "detectionType": "model_usage",
+        "summary": "AI usage detected: AI Tool/Function Calling (4 evidence items)",
+        "source": "AI Tool/Function Calling"
+      },
+      "confidence": 0.85,
+      "requiredReviewerRoles": [
+        "GOVERNANCE_OWNER",
+        "APP_OWNER"
+      ]
+    }
+  ],
+  "relationships": []
+}

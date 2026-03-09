@@ -39,8 +39,8 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     systemPrompt: |-
@@ -60,8 +60,8 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools:
       - maxIterations
     connectors: []
@@ -83,10 +83,11 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
-    connectors: []
+    connectors:
+      - GitHub API
     systemPrompt: |-
       Generate a brief 1-2 sentence summary of this code. Focus on:
       - What it does (purpose)
@@ -100,12 +101,29 @@ records:
     classification: ""
   - type: Agent
     confidence: 95%
-    name: parseDataFile
+    name: getQueryEmbedding
     framework: OpenAI Agent
     detectionMethod: structural
-    functionName: parseDataFile
+    functionName: getQueryEmbedding
     invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/code-intelligence.ts
+    sourceFile: apps/api/src/lib/vector-search.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateEmbedding
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateEmbedding
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/api/src/lib/vector-search.ts
     models:
       - gpt-4o-mini
       - gpt-4o
@@ -120,11 +138,46 @@ records:
     name: generateEmbeddings
     framework: OpenAI Agent
     detectionMethod: structural
+    functionName: generateEmbeddings
     invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/code-intelligence.ts
+    sourceFile: apps/api/src/lib/vector-search.ts
     models:
       - gpt-4o-mini
       - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: parseDataFile
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: parseDataFile
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateEmbeddings
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateEmbeddings
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -140,8 +193,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     systemPrompt: |-
@@ -164,8 +217,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/evidence-first.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
@@ -182,8 +235,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/evidence-first.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
@@ -265,6 +318,23 @@ records:
     classification: ""
   - type: Agent
     confidence: 95%
+    name: vector-search
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: vector-search
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/api/src/lib/vector-search.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
     name: chart-builder-optimized
     framework: OpenAI Agent
     detectionMethod: structural
@@ -272,8 +342,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/chart-builder-optimized.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -289,8 +359,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/chart-react-agent.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -306,8 +376,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -323,8 +393,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/document-parser.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -340,8 +410,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/gap-agent.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -357,8 +427,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/llm-tools.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -374,8 +444,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai-config.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -391,8 +461,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: packages/shared/src/schemas/tools.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -408,8 +478,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: packages/tools/src/model-gateway.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -425,8 +495,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: services/worker/src/jobs/document-generation.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors:
       - Redis
@@ -443,8 +513,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: services/worker/src/jobs/vector-index.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -464,7 +534,7 @@ records:
   - type: Tool
     confidence: 85%
     name: Child Process Execution
-    sourceFile: apps/web/src/lib/github-auth.ts
+    sourceFile: apps/web/src/app/api/python/route.ts
     parameterCount: 0
     capabilityCategory: other
     purpose: ""
@@ -532,6 +602,15 @@ records:
     confidence: 85%
     systemName: GitHub API
     connectorType: API
+    isExternal: "true"
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Connector
+    confidence: 85%
+    systemName: PostgreSQL
+    connectorType: DATABASE
     isExternal: "true"
     purpose: ""
     owner: ""

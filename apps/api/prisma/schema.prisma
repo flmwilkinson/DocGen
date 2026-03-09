@@ -1,16 +1,15 @@
 // ===========================================
 // DocGen.AI Database Schema
 // ===========================================
+// SQLite-compatible version for local development without Docker
 
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [pgvector(map: "vector")]
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ===========================================
@@ -23,14 +22,14 @@ model User {
   name      String?
   avatarUrl String?
   password  String? // Hashed password for credentials auth
-  
+
   // Relations
   projects        Project[]
   templates       Template[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("users")
 }
 
@@ -43,8 +42,8 @@ model Project {
   name        String
   description String?
   repoUrl     String?
-  settings    Json     @default("{}")
-  
+  settings    String   @default("{}") // JSON stored as string in SQLite
+
   // Relations
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId        String
@@ -52,10 +51,10 @@ model Project {
   artifacts      Artifact[]
   generationRuns GenerationRun[]
   templates      Template[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("projects")
 }
 
@@ -63,38 +62,31 @@ model Project {
 // Repository Snapshot
 // ===========================================
 
-enum RepoSnapshotStatus {
-  PENDING
-  CLONING
-  INDEXING
-  BUILDING_KG
-  EMBEDDING
-  READY
-  FAILED
-}
+// Note: SQLite doesn't support enums, so we use String with validation in code
+// Valid values: PENDING, CLONING, INDEXING, BUILDING_KG, EMBEDDING, READY, FAILED
 
 model RepoSnapshot {
-  id           String             @id @default(uuid())
+  id           String  @id @default(uuid())
   commitHash   String?
-  branch       String             @default("main")
-  status       RepoSnapshotStatus @default(PENDING)
-  fileManifest Json               @default("[]")
-  languageStats Json              @default("[]")
-  totalFiles   Int                @default(0)
-  totalSize    BigInt             @default(0)
+  branch       String  @default("main")
+  status       String  @default("PENDING") // RepoSnapshotStatus enum as string
+  fileManifest String  @default("[]") // JSON array
+  languageStats String @default("[]") // JSON array
+  totalFiles   Int     @default(0)
+  totalSize    Int     @default(0) // Changed from BigInt for SQLite compatibility
   localPath    String? // Path to cloned repo on disk
   errorMessage String?
-  
+
   // Relations
   project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId      String
   knowledgeGraph KnowledgeGraph?
   vectorChunks   VectorChunk[]
   generationRuns GenerationRun[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("repo_snapshots")
 }
 
@@ -105,17 +97,17 @@ model RepoSnapshot {
 model KnowledgeGraph {
   id      String @id @default(uuid())
   version Int    @default(1)
-  nodes   Json   @default("[]")
-  edges   Json   @default("[]")
-  stats   Json   @default("{}")
-  
+  nodes   String @default("[]") // JSON array
+  edges   String @default("[]") // JSON array
+  stats   String @default("{}") // JSON object
+
   // Relations
   repoSnapshot   RepoSnapshot @relation(fields: [repoSnapshotId], references: [id], onDelete: Cascade)
   repoSnapshotId String       @unique
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("knowledge_graphs")
 }
 
@@ -123,31 +115,26 @@ model KnowledgeGraph {
 // Artifact (Uploaded/Generated Files)
 // ===========================================
 
-enum ArtifactType {
-  UPLOADED_FILE
-  GENERATED_OUTPUT
-  EXPORT
-  REPO_ZIP
-}
+// ArtifactType: UPLOADED_FILE, GENERATED_OUTPUT, EXPORT, REPO_ZIP
 
 model Artifact {
-  id               String       @id @default(uuid())
-  type             ArtifactType
+  id               String  @id @default(uuid())
+  type             String  // ArtifactType enum as string
   filename         String
   originalFilename String?
   mimeType         String
-  size             BigInt
-  storageKey       String // S3/MinIO key
-  metadata         Json         @default("{}")
-  
+  size             Int     // Changed from BigInt for SQLite compatibility
+  storageKey       String  // S3/MinIO key or local path
+  metadata         String  @default("{}") // JSON object
+
   // Relations
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId    String
   vectorChunks VectorChunk[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("artifacts")
 }
 
@@ -159,20 +146,20 @@ model Template {
   id           String  @id @default(uuid())
   name         String
   description  String?
-  templateJson Json // Validated TemplateSchema
+  templateJson String  // JSON - Validated TemplateSchema
   isPublic     Boolean @default(false)
   version      Int     @default(1)
-  
+
   // Relations
   createdBy      User            @relation(fields: [createdById], references: [id])
   createdById    String
   project        Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId      String?
   generationRuns GenerationRun[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("templates")
 }
 
@@ -180,23 +167,16 @@ model Template {
 // Generation Run
 // ===========================================
 
-enum GenerationRunStatus {
-  PENDING
-  RUNNING
-  PAUSED
-  COMPLETED
-  FAILED
-  CANCELLED
-}
+// GenerationRunStatus: PENDING, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
 
 model GenerationRun {
-  id             String              @id @default(uuid())
-  status         GenerationRunStatus @default(PENDING)
-  inputs         Json                @default("{}") // GenerationRunInputsSchema
+  id             String  @id @default(uuid())
+  status         String  @default("PENDING") // GenerationRunStatus enum as string
+  inputs         String  @default("{}") // JSON - GenerationRunInputsSchema
   currentBlockId String?
-  progress       Float               @default(0)
+  progress       Float   @default(0)
   errorMessage   String?
-  
+
   // Relations
   project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId        String
@@ -207,12 +187,12 @@ model GenerationRun {
   documentVersions DocumentVersion[]
   gapQuestions     GapQuestion[]
   agentTraces      AgentTrace[]
-  
+
   startedAt  DateTime?
   finishedAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-  
+
   @@map("generation_runs")
 }
 
@@ -221,20 +201,20 @@ model GenerationRun {
 // ===========================================
 
 model DocumentVersion {
-  id             String @id @default(uuid())
-  title          String
-  contentJson    Json   @default("{}") // TipTap JSON
-  version        Int    @default(1)
-  exportArtifacts Json  @default("{}")
-  
+  id              String @id @default(uuid())
+  title           String
+  contentJson     String @default("{}") // JSON - TipTap document
+  version         Int    @default(1)
+  exportArtifacts String @default("{}") // JSON object
+
   // Relations
   generationRun   GenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
   generationRunId String
   blockOutputs    BlockOutput[]
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("document_versions")
 }
 
@@ -243,21 +223,21 @@ model DocumentVersion {
 // ===========================================
 
 model BlockOutput {
-  id          String @id @default(uuid())
+  id          String  @id @default(uuid())
   blockId     String
   outputType  String
-  content     Json   @default("{}")
-  confidence  Float  @default(1)
-  citations   Json   @default("[]")
-  rawResponse Json? // Debug: raw LLM response
-  
+  content     String  @default("{}") // JSON object
+  confidence  Float   @default(1)
+  citations   String  @default("[]") // JSON array
+  rawResponse String? // JSON - Debug: raw LLM response
+
   // Relations
   documentVersion   DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   documentVersionId String
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@unique([documentVersionId, blockId])
   @@map("block_outputs")
 }
@@ -266,39 +246,28 @@ model BlockOutput {
 // Gap / Question
 // ===========================================
 
-enum GapStatus {
-  OPEN
-  ANSWERED
-  DISMISSED
-  AUTO_RESOLVED
-}
-
-enum GapSeverity {
-  low
-  medium
-  high
-  critical
-}
+// GapStatus: OPEN, ANSWERED, DISMISSED, AUTO_RESOLVED
+// GapSeverity: low, medium, high, critical
 
 model GapQuestion {
-  id                 String      @id @default(uuid())
+  id                 String   @id @default(uuid())
   blockId            String?
   question           String
   context            String?
-  severity           GapSeverity
-  status             GapStatus   @default(OPEN)
+  severity           String   // GapSeverity enum as string
+  status             String   @default("OPEN") // GapStatus enum as string
   userAnswer         String?
   suggestedInputType String?
-  choices            Json?
-  
+  choices            String?  // JSON array
+
   // Relations
   generationRun   GenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
   generationRunId String
-  
+
   answeredAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-  
+
   @@map("gap_questions")
 }
 
@@ -308,23 +277,23 @@ model GapQuestion {
 
 model VectorChunk {
   id           String  @id @default(uuid())
-  sourceType   String // 'repo_file' | 'artifact'
+  sourceType   String  // 'repo_file' | 'artifact'
   sourcePath   String
   chunkIndex   Int
   content      String
   startLine    Int?
   endLine      Int?
-  metadata     Json    @default("{}")
-  embedding    Unsupported("vector(1536)")?
-  
+  metadata     String  @default("{}") // JSON object
+  embedding    String? // JSON array of floats for vector search (was pgvector)
+
   // Relations
   repoSnapshot   RepoSnapshot? @relation(fields: [repoSnapshotId], references: [id], onDelete: Cascade)
   repoSnapshotId String?
   artifact       Artifact?     @relation(fields: [artifactId], references: [id], onDelete: Cascade)
   artifactId     String?
-  
+
   createdAt DateTime @default(now())
-  
+
   @@index([repoSnapshotId])
   @@index([artifactId])
   @@map("vector_chunks")
@@ -337,19 +306,18 @@ model VectorChunk {
 model AgentTrace {
   id              String @id @default(uuid())
   blockId         String?
-  events          Json   @default("[]")
+  events          String @default("[]") // JSON array
   totalTokens     Int    @default(0)
   totalDurationMs Int    @default(0)
   status          String @default("running")
   error           String?
-  
+
   // Relations
   generationRun   GenerationRun @relation(fields: [generationRunId], references: [id], onDelete: Cascade)
   generationRunId String
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@map("agent_traces")
 }
-

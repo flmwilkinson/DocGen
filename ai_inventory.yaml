@@ -120,7 +120,6 @@ records:
     name: generateEmbeddings
     framework: OpenAI Agent
     detectionMethod: structural
-    functionName: generateEmbeddings
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
@@ -201,8 +200,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/gap-agent.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     systemPrompt: |-
@@ -239,8 +238,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/llm-tools.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools: []
     connectors: []
     purpose: ""
@@ -253,6 +252,194 @@ records:
     framework: OpenAI Agent
     detectionMethod: structural
     functionName: generateEmbeddings
+    invocationMode: TOOL_DRIVEN
+    sourceFile: services/worker/src/jobs/vector-index.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-builder-optimized
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-builder-optimized
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-builder-optimized.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-react-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-react-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-react-agent.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: code-intelligence
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: code-intelligence
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: document-parser
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: document-parser
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/document-parser.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: gap-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: gap-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/gap-agent.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: llm-tools
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: llm-tools
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/llm-tools.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: openai-config
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: openai-config
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai-config.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: tools
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: tools
+    invocationMode: TOOL_DRIVEN
+    sourceFile: packages/shared/src/schemas/tools.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: model-gateway
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: model-gateway
+    invocationMode: TOOL_DRIVEN
+    sourceFile: packages/tools/src/model-gateway.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: document-generation
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: document-generation
+    invocationMode: TOOL_DRIVEN
+    sourceFile: services/worker/src/jobs/document-generation.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools: []
+    connectors:
+      - Redis
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: vector-index
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: vector-index
     invocationMode: TOOL_DRIVEN
     sourceFile: services/worker/src/jobs/vector-index.ts
     models:

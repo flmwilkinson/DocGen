@@ -39,8 +39,8 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: |-
@@ -60,8 +60,8 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools:
       - maxIterations
     connectors: []
@@ -83,11 +83,10 @@ records:
     detectionMethod: framework
     invocationMode: TOOL_DRIVEN
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
-    connectors:
-      - GitHub API
+    connectors: []
     systemPrompt: |-
       Generate a brief 1-2 sentence summary of this code. Focus on:
       - What it does (purpose)
@@ -108,8 +107,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     purpose: ""
@@ -121,12 +120,11 @@ records:
     name: generateEmbeddings
     framework: OpenAI Agent
     detectionMethod: structural
-    functionName: generateEmbeddings
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     purpose: ""
@@ -142,8 +140,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: |-
@@ -166,8 +164,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/evidence-first.ts
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
@@ -184,8 +182,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/evidence-first.ts
     models:
-      - gpt-4o
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.

@@ -1,0 +1,630 @@
+{
+  "templateId": "550e8400-e29b-41d4-a716-446655440003",
+  "name": "Model Testing Plan",
+  "description": "Detailed testing plan template for model validation including test specifications, acceptance criteria, and execution procedures",
+  "version": "1.0.0",
+  "schemaVersion": "1.0.0",
+  "category": "validation_report",
+  "tags": ["MRM", "testing", "validation", "test-plan", "QA"],
+  "metadata": {
+    "author": "DocGen.AI",
+    "estimatedGenerationTime": 30
+  },
+  "sections": [
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440010",
+      "title": "Test Plan Overview",
+      "level": 1,
+      "description": "High-level testing objectives and scope",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440011",
+          "type": "USER_INPUT",
+          "title": "Test Plan Identification",
+          "userFields": [
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440012",
+              "name": "test_plan_id",
+              "label": "Test Plan ID",
+              "type": "TEXT",
+              "required": true,
+              "placeholder": "e.g., TP-PD-2024-001"
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440013",
+              "name": "model_name",
+              "label": "Model Under Test",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440014",
+              "name": "model_version",
+              "label": "Model Version",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440015",
+              "name": "test_type",
+              "label": "Test Type",
+              "type": "MULTISELECT",
+              "required": true,
+              "options": [
+                {"value": "unit", "label": "Unit Testing"},
+                {"value": "integration", "label": "Integration Testing"},
+                {"value": "regression", "label": "Regression Testing"},
+                {"value": "performance", "label": "Performance Testing"},
+                {"value": "uat", "label": "User Acceptance Testing"},
+                {"value": "replication", "label": "Replication Testing"}
+              ]
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440016",
+              "name": "test_lead",
+              "label": "Test Lead",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440017",
+              "name": "planned_start",
+              "label": "Planned Start Date",
+              "type": "DATE",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440018",
+              "name": "planned_end",
+              "label": "Planned End Date",
+              "type": "DATE",
+              "required": true
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440019",
+          "type": "LLM_TEXT",
+          "title": "Testing Objectives",
+          "instructions": "Define the primary objectives of this testing effort. Include: (1) What aspects of the model are being tested, (2) Key questions the testing aims to answer, (3) Success criteria at a high level, (4) Relationship to regulatory requirements, (5) Dependencies on other testing phases.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440020",
+          "type": "LLM_TABLE",
+          "title": "Testing Scope Summary",
+          "instructions": "Create a scope summary table listing what is In Scope and Out of Scope for this testing effort. Include testing areas, environments, and any known exclusions with justification.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "item", "label": "Item", "dataType": "string"},
+              {"key": "scope", "label": "In/Out of Scope", "dataType": "string"},
+              {"key": "justification", "label": "Justification", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440100",
+      "title": "Test Environment and Prerequisites",
+      "level": 1,
+      "description": "Testing infrastructure and requirements",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440101",
+          "type": "LLM_TABLE",
+          "title": "Environment Requirements",
+          "instructions": "Document the testing environment requirements including: Environment Name, Purpose, Hardware/Software specs, Data Requirements, Access Requirements, and Current Status.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "environment", "label": "Environment", "dataType": "string"},
+              {"key": "purpose", "label": "Purpose", "dataType": "string"},
+              {"key": "specs", "label": "Specifications", "dataType": "string"},
+              {"key": "data", "label": "Data Requirements", "dataType": "string"},
+              {"key": "access", "label": "Access", "dataType": "string"},
+              {"key": "status", "label": "Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440102",
+          "type": "LLM_TABLE",
+          "title": "Test Data Requirements",
+          "instructions": "Specify test data requirements including: Data Set Name, Source, Volume Required, Sensitivity Level, Masking Requirements, and Preparation Status.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "dataset", "label": "Data Set", "dataType": "string"},
+              {"key": "source", "label": "Source", "dataType": "string"},
+              {"key": "volume", "label": "Volume", "dataType": "string"},
+              {"key": "sensitivity", "label": "Sensitivity", "dataType": "string"},
+              {"key": "masking", "label": "Masking Required", "dataType": "string"},
+              {"key": "status", "label": "Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440103",
+          "type": "LLM_TABLE",
+          "title": "Prerequisites Checklist",
+          "instructions": "List all prerequisites that must be completed before testing can begin. Include: Prerequisite, Owner, Due Date, Status, and Dependencies.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "prerequisite", "label": "Prerequisite", "dataType": "string"},
+              {"key": "owner", "label": "Owner", "dataType": "string"},
+              {"key": "due_date", "label": "Due Date", "dataType": "date"},
+              {"key": "status", "label": "Status", "dataType": "string"},
+              {"key": "dependencies", "label": "Dependencies", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440200",
+      "title": "Unit Test Specifications",
+      "level": 1,
+      "description": "Individual component testing specifications",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440201",
+          "type": "LLM_TEXT",
+          "title": "Unit Testing Approach",
+          "instructions": "Describe the unit testing approach including: (1) Testing methodology (manual vs. automated), (2) Code coverage targets, (3) Testing tools and frameworks, (4) Defect classification and handling, (5) Regression testing strategy.",
+          "inputs": [
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440202",
+              "type": "REPO",
+              "query": "unit test pytest test framework",
+              "filters": {"filePatterns": ["*test*.py", "*_test.py", "test_*.py"]}
+            }
+          ],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["repo"]}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440203",
+          "type": "LLM_TABLE",
+          "title": "Unit Test Cases - Data Validation",
+          "instructions": "Define unit test cases for data validation functions. Include: Test ID, Function/Module, Test Description, Input Data, Expected Output, Priority, and Automation Status.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "function", "label": "Function/Module", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "input", "label": "Input", "dataType": "string"},
+              {"key": "expected", "label": "Expected Output", "dataType": "string"},
+              {"key": "priority", "label": "Priority", "dataType": "string"},
+              {"key": "automated", "label": "Automated", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440204",
+          "type": "LLM_TABLE",
+          "title": "Unit Test Cases - Scoring Logic",
+          "instructions": "Define unit test cases for model scoring logic. Include boundary conditions, edge cases, null handling, and calculation verification. Cover all score calculation paths.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "component", "label": "Component", "dataType": "string"},
+              {"key": "description", "label": "Test Description", "dataType": "string"},
+              {"key": "inputs", "label": "Test Inputs", "dataType": "string"},
+              {"key": "expected_score", "label": "Expected Score", "dataType": "string"},
+              {"key": "tolerance", "label": "Tolerance", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440205",
+          "type": "LLM_TABLE",
+          "title": "Edge Case Test Scenarios",
+          "instructions": "Document test cases for edge cases and boundary conditions including: null values, extreme values, data type mismatches, missing required fields, and exceptional conditions.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "scenario", "label": "Edge Case Scenario", "dataType": "string"},
+              {"key": "input_condition", "label": "Input Condition", "dataType": "string"},
+              {"key": "expected_behavior", "label": "Expected Behavior", "dataType": "string"},
+              {"key": "error_handling", "label": "Error Handling", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440300",
+      "title": "Integration Test Specifications",
+      "level": 1,
+      "description": "System integration and data flow testing",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440301",
+          "type": "LLM_TEXT",
+          "title": "Integration Testing Approach",
+          "instructions": "Describe the integration testing strategy covering: (1) Integration points being tested, (2) Data flow verification approach, (3) Interface testing methodology, (4) Error propagation testing, (5) End-to-end scenario coverage.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440302",
+          "type": "LLM_TABLE",
+          "title": "Integration Test Cases",
+          "instructions": "Define integration test cases covering all system interfaces. Include: Test ID, Integration Point, Test Scenario, Preconditions, Test Steps, Expected Results, and Data Requirements.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "integration_point", "label": "Integration Point", "dataType": "string"},
+              {"key": "scenario", "label": "Scenario", "dataType": "string"},
+              {"key": "preconditions", "label": "Preconditions", "dataType": "string"},
+              {"key": "steps", "label": "Test Steps", "dataType": "string"},
+              {"key": "expected", "label": "Expected Results", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440303",
+          "type": "LLM_TABLE",
+          "title": "Data Pipeline Tests",
+          "instructions": "Document data pipeline integration tests including: source data extraction, transformation verification, loading validation, and reconciliation checks.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "pipeline_stage", "label": "Pipeline Stage", "dataType": "string"},
+              {"key": "validation_check", "label": "Validation Check", "dataType": "string"},
+              {"key": "expected", "label": "Expected Outcome", "dataType": "string"},
+              {"key": "reconciliation", "label": "Reconciliation Method", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440400",
+      "title": "Performance Test Specifications",
+      "level": 1,
+      "description": "Model performance and accuracy testing",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440401",
+          "type": "USER_INPUT",
+          "title": "Performance Test Data",
+          "userFields": [
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440402",
+              "name": "benchmark_data",
+              "label": "Benchmark Test Data (CSV/Excel)",
+              "type": "FILE_UPLOAD",
+              "required": true,
+              "validation": {"allowedFileTypes": ["csv", "xlsx"]}
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440403",
+          "type": "LLM_TABLE",
+          "title": "Performance Acceptance Criteria",
+          "instructions": "Define acceptance criteria for model performance metrics. Include: Metric Name, Minimum Threshold, Target Value, Current Benchmark, Pass/Fail Criteria, and Business Justification for thresholds.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "metric", "label": "Metric", "dataType": "string"},
+              {"key": "minimum", "label": "Minimum", "dataType": "number"},
+              {"key": "target", "label": "Target", "dataType": "number"},
+              {"key": "benchmark", "label": "Benchmark", "dataType": "number"},
+              {"key": "criteria", "label": "Pass/Fail Criteria", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440404",
+          "type": "LLM_TABLE",
+          "title": "Discrimination Test Plan",
+          "instructions": "Define tests for model discrimination ability. Include tests for: ROC/AUC analysis, Gini coefficient, KS statistic, and lift analysis across different time periods and segments.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "metric", "label": "Metric", "dataType": "string"},
+              {"key": "sample", "label": "Test Sample", "dataType": "string"},
+              {"key": "threshold", "label": "Acceptance Threshold", "dataType": "number"},
+              {"key": "methodology", "label": "Calculation Methodology", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440405",
+          "type": "LLM_TABLE",
+          "title": "Calibration Test Plan",
+          "instructions": "Define calibration tests to verify predicted probabilities match observed outcomes. Include tests by score band, time period, and key segments. Specify tolerance levels for Actual/Predicted ratios.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "test_description", "label": "Test Description", "dataType": "string"},
+              {"key": "segment", "label": "Segment/Period", "dataType": "string"},
+              {"key": "tolerance", "label": "Tolerance (+/-)", "dataType": "percentage"},
+              {"key": "methodology", "label": "Methodology", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440406",
+          "type": "LLM_TABLE",
+          "title": "Stability Test Plan",
+          "instructions": "Define stability tests including PSI calculations for score distribution and input variables. Specify thresholds for PSI interpretation (typically <0.1 green, 0.1-0.25 yellow, >0.25 red).",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "variable", "label": "Variable/Score", "dataType": "string"},
+              {"key": "comparison", "label": "Comparison Periods", "dataType": "string"},
+              {"key": "green", "label": "Green (<)", "dataType": "number"},
+              {"key": "yellow", "label": "Yellow (<)", "dataType": "number"},
+              {"key": "red", "label": "Red (>=)", "dataType": "number"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440500",
+      "title": "Replication Test Specifications",
+      "level": 1,
+      "description": "Independent model replication testing",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440501",
+          "type": "LLM_TEXT",
+          "title": "Replication Testing Methodology",
+          "instructions": "Describe the replication testing approach including: (1) Scope of replication (full vs. partial), (2) Independent implementation approach, (3) Comparison methodology, (4) Tolerance thresholds for match rates, (5) Root cause analysis process for discrepancies.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440502",
+          "type": "LLM_TABLE",
+          "title": "Replication Test Cases",
+          "instructions": "Define specific replication test cases including: component being replicated, sample size, tolerance threshold, comparison method, and acceptance criteria.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_id", "label": "Test ID", "dataType": "string"},
+              {"key": "component", "label": "Component", "dataType": "string"},
+              {"key": "sample_size", "label": "Sample Size", "dataType": "number"},
+              {"key": "tolerance", "label": "Tolerance", "dataType": "string"},
+              {"key": "comparison", "label": "Comparison Method", "dataType": "string"},
+              {"key": "acceptance", "label": "Acceptance Criteria", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440600",
+      "title": "Test Execution Procedures",
+      "level": 1,
+      "description": "Detailed test execution steps and procedures",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440601",
+          "type": "LLM_TEXT",
+          "title": "Test Execution Process",
+          "instructions": "Document the test execution process including: (1) Test preparation steps, (2) Execution sequence, (3) Results recording procedures, (4) Defect reporting process, (5) Re-test procedures after defect fixes.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440602",
+          "type": "LLM_TABLE",
+          "title": "Test Execution Schedule",
+          "instructions": "Create a test execution schedule showing: Test Phase, Start Date, End Date, Tester, Dependencies, and Status. Order by execution sequence.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "phase", "label": "Test Phase", "dataType": "string"},
+              {"key": "start_date", "label": "Start Date", "dataType": "date"},
+              {"key": "end_date", "label": "End Date", "dataType": "date"},
+              {"key": "tester", "label": "Tester", "dataType": "string"},
+              {"key": "dependencies", "label": "Dependencies", "dataType": "string"},
+              {"key": "status", "label": "Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440700",
+      "title": "Defect Management",
+      "level": 1,
+      "description": "Defect tracking and resolution procedures",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440701",
+          "type": "LLM_TABLE",
+          "title": "Defect Severity Classification",
+          "instructions": "Define defect severity levels with clear criteria. Include: Severity Level, Definition, Response Time, Examples, and Escalation Path.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "severity", "label": "Severity", "dataType": "string"},
+              {"key": "definition", "label": "Definition", "dataType": "string"},
+              {"key": "response_time", "label": "Response Time", "dataType": "string"},
+              {"key": "examples", "label": "Examples", "dataType": "string"},
+              {"key": "escalation", "label": "Escalation Path", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440702",
+          "type": "LLM_TEXT",
+          "title": "Defect Lifecycle Process",
+          "instructions": "Document the complete defect lifecycle including: defect identification, logging, triage, assignment, resolution, verification, and closure. Include required documentation at each stage.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440800",
+      "title": "Acceptance Criteria and Sign-off",
+      "level": 1,
+      "description": "Overall test acceptance and approval criteria",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440801",
+          "type": "LLM_TABLE",
+          "title": "Test Exit Criteria",
+          "instructions": "Define the criteria that must be met before testing can be considered complete. Include: Criteria Category, Specific Requirement, Measurement Method, and Current Status.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "category", "label": "Category", "dataType": "string"},
+              {"key": "criteria", "label": "Exit Criteria", "dataType": "string"},
+              {"key": "measurement", "label": "Measurement", "dataType": "string"},
+              {"key": "status", "label": "Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440802",
+          "type": "USER_INPUT",
+          "title": "Test Sign-off",
+          "userFields": [
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440803",
+              "name": "test_lead_approval",
+              "label": "Test Lead Approval",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440804",
+              "name": "model_owner_approval",
+              "label": "Model Owner Approval",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440805",
+              "name": "approval_date",
+              "label": "Approval Date",
+              "type": "DATE",
+              "required": true
+            },
+            {
+              "id": "770e8400-e29b-41d4-a716-446655440806",
+              "name": "conditions",
+              "label": "Conditions or Caveats",
+              "type": "TEXTAREA",
+              "required": false
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "770e8400-e29b-41d4-a716-446655440900",
+      "title": "Appendix: Test Evidence Templates",
+      "level": 1,
+      "description": "Templates for capturing test evidence",
+      "blocks": [
+        {
+          "id": "770e8400-e29b-41d4-a716-446655440901",
+          "type": "STATIC_TEXT",
+          "title": "Evidence Documentation Requirements",
+          "staticText": "## Required Test Evidence\n\nFor each test executed, the following evidence must be captured and retained:\n\n### 1. Test Execution Log\n- Test ID and description\n- Execution date and time\n- Tester name\n- Environment details\n- Input data used\n- Actual results obtained\n- Pass/Fail determination\n- Screenshots or output files\n\n### 2. Defect Documentation\n- Defect ID and title\n- Steps to reproduce\n- Expected vs. actual behavior\n- Severity and priority\n- Screenshots/logs\n- Resolution details\n\n### 3. Sign-off Documentation\n- Test summary report\n- Defect metrics\n- Coverage analysis\n- Approval signatures\n\n### 4. Retention Requirements\n- All test evidence must be retained for a minimum of 7 years\n- Evidence should be stored in the designated document repository\n- Evidence must be version controlled and access restricted",
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    }
+  ]
+}

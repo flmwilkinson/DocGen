@@ -15,7 +15,8 @@ interface RepoCloneJobData {
 interface JobContext {
   prisma: PrismaClient;
   logger: Logger;
-  redis: Redis;
+  redis: Redis | null; // Redis is optional for local execution
+  executeFollowUpJob?: (queueName: string, jobName: string, data: Record<string, unknown>) => Promise<void>;
 }
 
 const REPOS_DIR = process.env.REPOS_DIR || '/tmp/docgen-repos';
@@ -25,9 +26,10 @@ export async function processRepoClone(
   ctx: JobContext
 ): Promise<{ success: boolean; filesCount: number }> {
   const { snapshotId, repoUrl, branch } = data;
-  const { prisma, logger, redis } = ctx;
+  const { prisma, logger, redis, executeFollowUpJob } = ctx;
 
-  const repoQueue = new Queue('repo-processing', { connection: redis });
+  // Create queue only if Redis is available
+  const repoQueue = redis ? new Queue('repo-processing', { connection: redis }) : null;
 
   try {
     // Update status to CLONING
@@ -58,29 +60,40 @@ export async function processRepoClone(
     const fileManifest = await buildFileManifest(repoDir);
     const languageStats = calculateLanguageStats(fileManifest);
 
+    // Calculate total size (use number for SQLite compatibility)
+    const totalSize = fileManifest.reduce((sum, f) => sum + f.size, 0);
+
     // Update snapshot with manifest
+    // Note: fileManifest and languageStats are JSON, stored as string in SQLite
     await prisma.repoSnapshot.update({
       where: { id: snapshotId },
       data: {
         status: 'INDEXING',
         commitHash,
         localPath: repoDir,
-        fileManifest,
-        languageStats,
+        fileManifest: JSON.stringify(fileManifest),
+        languageStats: JSON.stringify(languageStats),
         totalFiles: fileManifest.length,
-        totalSize: BigInt(fileManifest.reduce((sum, f) => sum + f.size, 0)),
+        totalSize: totalSize, // Number for SQLite, was BigInt for PostgreSQL
       },
     });
 
-    // Queue knowledge graph building
-    await repoQueue.add('build-kg', { snapshotId }, {
-      jobId: `kg-${snapshotId}`,
-    });
-
-    // Queue vector index building
-    await repoQueue.add('build-vector-index', { snapshotId }, {
-      jobId: `vec-${snapshotId}`,
-    });
+    // Queue follow-up jobs
+    if (repoQueue) {
+      // Use Redis queue
+      await repoQueue.add('build-kg', { snapshotId }, {
+        jobId: `kg-${snapshotId}`,
+      });
+      await repoQueue.add('build-vector-index', { snapshotId }, {
+        jobId: `vec-${snapshotId}`,
+      });
+    } else if (executeFollowUpJob) {
+      // Execute inline (no Redis)
+      await executeFollowUpJob('repo-processing', 'build-kg', { snapshotId });
+      await executeFollowUpJob('repo-processing', 'build-vector-index', { snapshotId });
+    } else {
+      logger.warn('No queue or inline executor available - follow-up jobs skipped');
+    }
 
     return { success: true, filesCount: fileManifest.length };
   } catch (error) {

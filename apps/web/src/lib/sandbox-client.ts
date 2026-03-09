@@ -1,8 +1,17 @@
 /**
  * Python Sandbox Client
- * 
+ *
  * Communicates with the Python sandbox service to execute code,
  * generate charts, and perform data analysis.
+ *
+ * Supports two modes:
+ * 1. Local Python execution (default when NEXT_PUBLIC_USE_LOCAL_PYTHON=true)
+ *    - Uses /api/python route which spawns Python locally
+ *    - No Docker required
+ *
+ * 2. Docker sandbox (when Docker is available)
+ *    - Uses the sandbox-python container
+ *    - Better isolation but requires Docker
  */
 
 export interface ExecutionResult {
@@ -19,24 +28,21 @@ export interface GeneratedFile {
   path: string;
   size: number;
   mimeType: string;
-  base64Data?: string; // Will be populated after download
+  base64Data?: string;
 }
 
 export interface ChartResult {
   success: boolean;
-  imageBase64?: string; // First chart for backward compatibility
+  imageBase64?: string;
   imageMimeType?: string;
-  chartImages?: Array<{ base64: string; mimeType: string; filename: string }>; // All charts
+  chartImages?: Array<{ base64: string; mimeType: string; filename: string }>;
   error?: string;
   executionTimeMs: number;
   code: string;
-  stdout?: string; // Execution output (summary stats, headers, etc.)
-  stderr?: string; // Errors/warnings
-  structuredResult?: Record<string, unknown>; // Structured results (schema info, etc.)
+  stdout?: string;
+  stderr?: string;
+  structuredResult?: Record<string, unknown>;
 }
-
-// Get sandbox URL from environment or use default
-const SANDBOX_URL = process.env.NEXT_PUBLIC_SANDBOX_PYTHON_URL || 'http://localhost:8001';
 
 export interface TransferredFile {
   path: string;
@@ -51,17 +57,113 @@ export interface TransferFilesResult {
   errors: Array<{ path: string; error: string }>;
 }
 
+// Configuration
+const USE_LOCAL_PYTHON = process.env.NEXT_PUBLIC_USE_LOCAL_PYTHON === 'true' ||
+  process.env.NEXT_PUBLIC_USE_LOCAL_PYTHON === undefined; // Default to true if not set
+const SANDBOX_URL = process.env.NEXT_PUBLIC_SANDBOX_PYTHON_URL || 'http://localhost:8001';
+
+// Track which mode is being used
+let currentMode: 'local' | 'docker' | 'unknown' = 'unknown';
+
 /**
- * Transfer files to the sandbox for use in code execution.
- * Files can be provided as direct content or URLs to fetch.
+ * Check if Python is available (either locally or via Docker sandbox)
+ */
+export async function isSandboxAvailable(): Promise<boolean> {
+  // Try local Python first if configured
+  if (USE_LOCAL_PYTHON) {
+    try {
+      console.log('[Sandbox] Checking local Python availability...');
+      const response = await fetch('/api/python', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'check' }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.available) {
+          console.log(`[Sandbox] Local Python available: ${result.version}`);
+          currentMode = 'local';
+          return true;
+        }
+      }
+    } catch (error) {
+      console.warn('[Sandbox] Local Python check failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  // Fall back to Docker sandbox
+  try {
+    console.log(`[Sandbox] Checking Docker sandbox at ${SANDBOX_URL}/health`);
+    const response = await fetch(`${SANDBOX_URL}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (response.ok) {
+      console.log('[Sandbox] Docker sandbox available');
+      currentMode = 'docker';
+      return true;
+    }
+  } catch (error) {
+    console.warn('[Sandbox] Docker sandbox not available:', error instanceof Error ? error.message : error);
+  }
+
+  currentMode = 'unknown';
+  return false;
+}
+
+/**
+ * Get the current sandbox mode
+ */
+export function getSandboxMode(): 'local' | 'docker' | 'unknown' {
+  return currentMode;
+}
+
+/**
+ * Transfer files to the sandbox for use in code execution
  */
 export async function transferFilesToSandbox(
   executionId: string,
   files: Array<{ path: string; content?: string; url?: string; encoding?: 'base64' }>
 ): Promise<TransferFilesResult> {
+  // For local Python, use the local API route
+  if (currentMode === 'local' || USE_LOCAL_PYTHON) {
+    try {
+      console.log(`[Sandbox] Transferring ${files.length} files locally for execution ${executionId}`);
+      const response = await fetch('/api/python', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'transfer',
+          executionId,
+          files,
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Local transfer failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return {
+        executionId,
+        dataDir: result.dataDir,
+        transferred: result.transferred?.map((t: string) => ({ path: t, fullPath: t, size: 0 })) || [],
+        errors: [],
+      };
+    } catch (error) {
+      console.error('[Sandbox] Local file transfer failed:', error);
+      // Don't fall back to Docker for file transfers - just throw
+      throw error;
+    }
+  }
+
+  // Docker sandbox file transfer
   try {
-    console.log(`[Sandbox] Transferring ${files.length} files for execution ${executionId}`);
-    
+    console.log(`[Sandbox] Transferring ${files.length} files to Docker sandbox for execution ${executionId}`);
     const response = await fetch(`${SANDBOX_URL}/transfer-files`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -74,7 +176,7 @@ export async function transferFilesToSandbox(
           encoding: f.encoding,
         })),
       }),
-      signal: AbortSignal.timeout(60000), // 60s timeout for large files
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!response.ok) {
@@ -82,12 +184,6 @@ export async function transferFilesToSandbox(
     }
 
     const result = await response.json();
-    console.log(`[Sandbox] Transferred ${result.transferred?.length || 0} files, ${result.errors?.length || 0} errors`);
-    
-    if (result.errors?.length > 0) {
-      console.warn(`[Sandbox] Transfer errors:`, result.errors);
-    }
-    
     return {
       executionId: result.execution_id,
       dataDir: result.data_dir,
@@ -95,44 +191,76 @@ export async function transferFilesToSandbox(
       errors: result.errors || [],
     };
   } catch (error) {
-    console.error(`[Sandbox] Transfer files failed:`, error);
+    console.error('[Sandbox] Docker file transfer failed:', error);
     throw error;
   }
 }
 
 /**
- * Check if the sandbox service is available
- */
-export async function isSandboxAvailable(): Promise<boolean> {
-  try {
-    console.log(`[Sandbox] Checking availability at ${SANDBOX_URL}/health`);
-    const response = await fetch(`${SANDBOX_URL}/health`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(3000),
-    });
-    const available = response.ok;
-    console.log(`[Sandbox] Available: ${available}`);
-    return available;
-  } catch (error) {
-    console.warn(`[Sandbox] Not available:`, error instanceof Error ? error.message : error);
-    return false;
-  }
-}
-
-/**
  * Execute Python code in the sandbox
- * @param executionId - Optional execution ID to use existing directory (for file transfers)
  */
 export async function executeCode(
   code: string,
   timeoutSec: number = 60,
   executionId?: string
 ): Promise<ExecutionResult> {
+  // For local Python, use the local API route
+  if (currentMode === 'local' || USE_LOCAL_PYTHON) {
+    try {
+      const response = await fetch('/api/python', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'execute',
+          code,
+          executionId,
+        }),
+        signal: AbortSignal.timeout((timeoutSec + 10) * 1000),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Local execution failed: ${error}`);
+      }
+
+      const result = await response.json();
+
+      // The local API returns a slightly different format
+      if (result.success) {
+        return {
+          stdout: result.stdout || '',
+          stderr: result.stderr || '',
+          exitCode: 0,
+          executionTimeMs: result.executionTimeMs || 0,
+          generatedFiles: result.chartImages?.map((img: { filename: string; base64: string; mimeType: string }) => ({
+            filename: img.filename,
+            path: `/local/${executionId}/${img.filename}`,
+            size: img.base64.length,
+            mimeType: img.mimeType,
+            base64Data: img.base64,
+          })) || [],
+          structuredResult: result.structuredResult,
+        };
+      } else {
+        return {
+          stdout: result.stdout || '',
+          stderr: result.stderr || result.error || 'Execution failed',
+          exitCode: 1,
+          executionTimeMs: result.executionTimeMs || 0,
+          generatedFiles: [],
+          structuredResult: undefined,
+        };
+      }
+    } catch (error) {
+      console.error('[Sandbox] Local execution failed:', error);
+      throw error;
+    }
+  }
+
+  // Docker sandbox execution
   const response = await fetch(`${SANDBOX_URL}/execute`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       code,
       timeout_sec: timeoutSec,
@@ -147,7 +275,7 @@ export async function executeCode(
   }
 
   const result = await response.json();
-  
+
   return {
     stdout: result.stdout,
     stderr: result.stderr,
@@ -170,6 +298,13 @@ export async function downloadFileAsBase64(
   executionId: string,
   filename: string
 ): Promise<string> {
+  // For local execution, files are already in the result
+  // This function is only needed for Docker sandbox
+  if (currentMode === 'local') {
+    console.warn('[Sandbox] downloadFileAsBase64 called in local mode - files should already be in result');
+    return '';
+  }
+
   const response = await fetch(
     `${SANDBOX_URL}/download/${executionId}/${filename}`,
     { signal: AbortSignal.timeout(30000) }
@@ -184,7 +319,6 @@ export async function downloadFileAsBase64(
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64 = reader.result as string;
-      // Remove data URL prefix if present
       const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
       resolve(base64Data);
     };
@@ -196,9 +330,6 @@ export async function downloadFileAsBase64(
 /**
  * Generate a chart using Python code execution
  * This is the main function used by the LLM agent
- * 
- * @param code - Python code to execute
- * @param context - Optional context including data files to transfer
  */
 export async function generateChart(
   code: string,
@@ -210,10 +341,68 @@ export async function generateChart(
 ): Promise<ChartResult> {
   const startTime = Date.now();
 
-  // Generate execution ID for this chart
+  // Ensure we know which mode we're using
+  if (currentMode === 'unknown') {
+    await isSandboxAvailable();
+  }
+
   const executionId = `chart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Transfer data files if provided
+  // For local Python, use a simplified direct approach
+  if (currentMode === 'local' || USE_LOCAL_PYTHON) {
+    try {
+      console.log('[Sandbox] Using local Python for chart generation');
+      const response = await fetch('/api/python', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'execute',
+          code,
+          executionId,
+          context: {
+            title: context?.title,
+            dataDescription: context?.dataDescription,
+            dataFiles: context?.dataFiles,
+          },
+        }),
+        signal: AbortSignal.timeout(70000),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        return {
+          success: true,
+          imageBase64: result.imageBase64,
+          imageMimeType: result.imageMimeType || 'image/png',
+          chartImages: result.chartImages,
+          executionTimeMs: result.executionTimeMs || Date.now() - startTime,
+          code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          structuredResult: result.structuredResult,
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error || 'Chart generation failed',
+          executionTimeMs: result.executionTimeMs || Date.now() - startTime,
+          code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        executionTimeMs: Date.now() - startTime,
+        code,
+      };
+    }
+  }
+
+  // Docker sandbox chart generation (original implementation)
   let dataDir = '';
   if (context?.dataFiles && context.dataFiles.length > 0) {
     try {
@@ -222,32 +411,20 @@ export async function generateChart(
       dataDir = transferResult.dataDir;
       console.log(`[Sandbox] Files available at: ${dataDir}`);
     } catch (error) {
-      console.warn(`[Sandbox] File transfer failed:`, error);
-      // Continue without files - code may use inline data
+      console.warn('[Sandbox] File transfer failed:', error);
     }
   }
 
-  // CRITICAL: Strip markdown code fences if present (LLM sometimes includes them)
+  // Clean the code
   let cleanedCode = code.trim();
-
-  // Remove markdown code fences: ```python ... ``` or ``` ... ```
   cleanedCode = cleanedCode.replace(/^```(?:python)?\s*\n/gm, '');
   cleanedCode = cleanedCode.replace(/\n```\s*$/gm, '');
-  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*$/gm, ''); // Remove standalone fences
+  cleanedCode = cleanedCode.replace(/^```(?:python)?\s*$/gm, '');
   cleanedCode = cleanedCode.replace(/```\s*$/gm, '');
-
-  // Remove any plt.savefig() calls - we handle saving automatically
-  cleanedCode = cleanedCode.replace(/plt\.savefig\([^)]+\)/g, '# plt.savefig removed - handled automatically');
-
-  // Remove plt.show() calls
+  cleanedCode = cleanedCode.replace(/plt\.savefig\([^)]+\)/g, '# plt.savefig removed');
   cleanedCode = cleanedCode.replace(/plt\.show\(\)/g, '# plt.show removed');
 
-  console.log(`[Sandbox] Original code length: ${code.length}, Cleaned: ${cleanedCode.length}`);
-  if (code !== cleanedCode) {
-    console.log(`[Sandbox] ✂️ Stripped markdown fences and plt.savefig/show calls`);
-  }
-
-  // Wrap the code to ensure proper chart saving
+  // Wrap code with chart generation boilerplate
   const wrappedCode = `
 import matplotlib
 matplotlib.use('Agg')
@@ -257,33 +434,17 @@ import pandas as pd
 import os
 import warnings
 
-# Suppress matplotlib warnings that can cause issues
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 warnings.filterwarnings('ignore', message='.*masked.*')
 
-# Clear any previous matplotlib state
 plt.close('all')
 plt.rcdefaults()
 
-# Data directory where transferred files are located
 DATA_DIR = "${dataDir || '/tmp/sandbox/data'}"
 
-# Helper function to load data files
 def load_data(filename):
-    """Load a data file from the DATA_DIR"""
     path = os.path.join(DATA_DIR, filename)
-    
-    # Debug: list available files
-    if not os.path.exists(path):
-        available_files = []
-        for root, dirs, files in os.walk(DATA_DIR):
-            for f in files:
-                rel_path = os.path.relpath(os.path.join(root, f), DATA_DIR)
-                available_files.append(rel_path)
-        print(f"DEBUG: Looking for {filename} in {DATA_DIR}")
-        print(f"DEBUG: Available files: {available_files[:10]}")  # Show first 10
-    
     if os.path.exists(path):
         if filename.endswith('.csv'):
             return pd.read_csv(path)
@@ -293,9 +454,8 @@ def load_data(filename):
             return pd.read_json(path)
         elif filename.endswith('.parquet'):
             return pd.read_parquet(path)
-    raise FileNotFoundError(f"File not found: {path}. DATA_DIR={DATA_DIR}, filename={filename}")
+    raise FileNotFoundError(f"File not found: {path}")
 
-# Set style
 plt.style.use('dark_background')
 plt.rcParams['figure.facecolor'] = '#1a1a2e'
 plt.rcParams['axes.facecolor'] = '#16213e'
@@ -306,80 +466,59 @@ plt.rcParams['xtick.color'] = '#ffffff'
 plt.rcParams['ytick.color'] = '#ffffff'
 plt.rcParams['grid.color'] = '#0f3460'
 
-# User code starts here
+# User code
 ${cleanedCode}
 
-# Ensure all figures are saved (support multiple charts)
-# Wrap in try/except to handle any rendering errors gracefully
+# Save figures
 if plt.get_fignums():
-    fig_nums = plt.get_fignums()
-    saved_count = 0
-    for i, fig_num in enumerate(fig_nums):
+    for i, fig_num in enumerate(plt.get_fignums()):
         try:
             fig = plt.figure(fig_num)
             fig.tight_layout()
-            # Save each figure with a unique name
-            chart_filename = f'chart_{i}.png' if len(fig_nums) > 1 else 'chart.png'
+            chart_filename = f'chart_{i}.png' if len(plt.get_fignums()) > 1 else 'chart.png'
             fig.savefig(os.path.join(OUTPUT_DIR, chart_filename), dpi=150, bbox_inches='tight', facecolor='#1a1a2e')
-            saved_count += 1
-            print(f"Saved chart: {chart_filename}")
+            print(f"Saved: {chart_filename}")
         except Exception as e:
-            print(f"Warning: Failed to save figure {fig_num}: {e}")
-            # Try to save with minimal options as fallback
-            try:
-                fig.savefig(os.path.join(OUTPUT_DIR, f'chart_fallback_{i}.png'), dpi=100)
-                saved_count += 1
-                print(f"Saved fallback chart: chart_fallback_{i}.png")
-            except Exception as e2:
-                print(f"Error: Could not save figure {fig_num} even with fallback: {e2}")
+            print(f"Error saving figure: {e}")
         finally:
             plt.close(fig)
-    print(f"Total charts saved: {saved_count}")
     plt.close('all')
 `;
 
   try {
-    const result = await executeCode(wrappedCode, 60, executionId); // Use same execution ID as file transfer
-    
-    // Check for errors
+    const result = await executeCode(wrappedCode, 60, executionId);
+
     if (result.exitCode !== 0) {
       return {
         success: false,
         error: result.stderr || 'Code execution failed',
         executionTimeMs: Date.now() - startTime,
         code,
-        stdout: result.stdout, // Include stdout even on error (may have useful info)
+        stdout: result.stdout,
         stderr: result.stderr,
         structuredResult: result.structuredResult,
       };
     }
-    
-    // Find ALL chart images (support multiple charts)
-    // Sandbox saves as: chart.png, chart_0.png, chart_1.png, or figure_0.png, figure_1.png
+
     const chartFiles = result.generatedFiles.filter(
       f => f.filename.startsWith('chart') || f.filename.startsWith('figure_') || f.mimeType.startsWith('image/')
-    ).sort((a, b) => {
-      // Sort by filename to ensure consistent order
-      return a.filename.localeCompare(b.filename);
-    });
-    
+    ).sort((a, b) => a.filename.localeCompare(b.filename));
+
     if (chartFiles.length === 0) {
       return {
         success: false,
         error: 'No chart image was generated',
         executionTimeMs: Date.now() - startTime,
         code,
-        stdout: result.stdout, // Include stdout to show what happened
+        stdout: result.stdout,
         stderr: result.stderr,
         structuredResult: result.structuredResult,
       };
     }
-    
-    // Extract execution ID from path (use different variable name to avoid shadowing)
+
     const pathParts = chartFiles[0].path.split('/');
     const fileExecutionId = pathParts[pathParts.length - 2];
-    
-    // Download all chart images as base64
+
     const chartImages = await Promise.all(
       chartFiles.map(async (chartFile) => {
         const base64Data = await downloadFileAsBase64(fileExecutionId, chartFile.filename);
@@ -390,20 +529,17 @@ if plt.get_fignums():
         };
       })
     );
-    
-    console.log(`[Sandbox] Generated ${chartImages.length} chart(s): ${chartFiles.map(f => f.filename).join(', ')}`);
-    
-    // Return first chart for backward compatibility, but also include all charts
+
     return {
       success: true,
-      imageBase64: chartImages[0].base64, // First chart for backward compatibility
+      imageBase64: chartImages[0].base64,
       imageMimeType: chartImages[0].mimeType,
-      chartImages: chartImages, // All charts
+      chartImages,
       executionTimeMs: Date.now() - startTime,
       code,
-      stdout: result.stdout, // Include stdout (summary stats, headers, etc.)
-      stderr: result.stderr, // Include stderr (warnings, etc.)
-      structuredResult: result.structuredResult, // Include structured results (schema info, etc.)
+      stdout: result.stdout,
+      stderr: result.stderr,
+      structuredResult: result.structuredResult,
     };
   } catch (error) {
     return {
@@ -426,38 +562,32 @@ export async function executeAnalysis(
   result?: Record<string, unknown>;
   error?: string;
 }> {
-  // CRITICAL: Strip markdown code fences if present
   let cleanedCode = code.trim();
   cleanedCode = cleanedCode.replace(/^```(?:python)?\s*\n/gm, '');
   cleanedCode = cleanedCode.replace(/\n```\s*$/gm, '');
   cleanedCode = cleanedCode.replace(/^```(?:python)?\s*$/gm, '');
   cleanedCode = cleanedCode.replace(/```\s*$/gm, '');
 
-  // Wrap code to capture results
   const wrappedCode = `
 import json
 import pandas as pd
 import numpy as np
 
-# Input data (if provided)
 _input_data = ${JSON.stringify(inputData || {})}
 
-# User code
 ${cleanedCode}
-
-# If _result is defined, it will be captured
 `;
 
   try {
     const result = await executeCode(wrappedCode, 60);
-    
+
     if (result.exitCode !== 0) {
       return {
         success: false,
         error: result.stderr || 'Analysis failed',
       };
     }
-    
+
     return {
       success: true,
       result: result.structuredResult || { output: result.stdout },
@@ -469,4 +599,3 @@ ${cleanedCode}
     };
   }
 }
-

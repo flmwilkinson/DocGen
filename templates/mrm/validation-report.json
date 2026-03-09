@@ -1,0 +1,740 @@
+{
+  "templateId": "550e8400-e29b-41d4-a716-446655440001",
+  "name": "Model Validation Report",
+  "description": "Comprehensive model validation report for Model Risk Management (MRM) including testing plan, execution results, and findings analysis",
+  "version": "1.0.0",
+  "schemaVersion": "1.0.0",
+  "category": "validation_report",
+  "tags": ["MRM", "validation", "testing", "model-risk", "regulatory"],
+  "metadata": {
+    "author": "DocGen.AI",
+    "estimatedGenerationTime": 45
+  },
+  "sections": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440010",
+      "title": "Executive Summary",
+      "level": 1,
+      "description": "High-level overview of validation results and key findings",
+      "blocks": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440011",
+          "type": "USER_INPUT",
+          "title": "Validation Metadata",
+          "userFields": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440012",
+              "name": "model_name",
+              "label": "Model Name",
+              "type": "TEXT",
+              "required": true,
+              "placeholder": "e.g., Credit Risk Scorecard v2.1"
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440013",
+              "name": "model_id",
+              "label": "Model ID",
+              "type": "TEXT",
+              "required": true,
+              "placeholder": "e.g., CR-2024-001"
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440014",
+              "name": "validation_type",
+              "label": "Validation Type",
+              "type": "SELECT",
+              "required": true,
+              "options": [
+                {"value": "initial", "label": "Initial Validation"},
+                {"value": "annual", "label": "Annual Review"},
+                {"value": "material_change", "label": "Material Change"},
+                {"value": "triggered", "label": "Triggered Review"}
+              ]
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440015",
+              "name": "validation_date",
+              "label": "Validation Date",
+              "type": "DATE",
+              "required": true
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440016",
+              "name": "validator_name",
+              "label": "Lead Validator",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440017",
+              "name": "overall_rating",
+              "label": "Overall Validation Rating",
+              "type": "SELECT",
+              "required": true,
+              "options": [
+                {"value": "satisfactory", "label": "Satisfactory"},
+                {"value": "satisfactory_with_findings", "label": "Satisfactory with Findings"},
+                {"value": "needs_improvement", "label": "Needs Improvement"},
+                {"value": "unsatisfactory", "label": "Unsatisfactory"}
+              ]
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440018",
+          "type": "LLM_TEXT",
+          "title": "Executive Summary",
+          "instructions": "Generate a comprehensive executive summary of the model validation. Include: (1) Brief model description and its business purpose, (2) Scope of validation activities performed, (3) Key findings summary with severity breakdown, (4) Overall assessment and validation conclusion, (5) Key recommendations. Use the validation metadata and any uploaded model documentation as context.",
+          "inputs": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440019",
+              "type": "ARTIFACT",
+              "description": "Model documentation and testing results"
+            }
+          ],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "minCitations": 2, "allowedSources": ["artifact", "user_provided"]}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440020",
+          "type": "LLM_TABLE",
+          "title": "Findings Summary",
+          "instructions": "Create a summary table of all validation findings. For each finding include: Finding ID, Category (Conceptual/Implementation/Data/Performance/Documentation), Severity (High/Medium/Low), Brief Description, and Recommended Action. Base this on the validation activities performed.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "finding_id", "label": "Finding ID", "dataType": "string"},
+              {"key": "category", "label": "Category", "dataType": "string"},
+              {"key": "severity", "label": "Severity", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "recommendation", "label": "Recommendation", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440100",
+      "title": "Validation Scope and Approach",
+      "level": 1,
+      "description": "Documentation of validation scope, methodology, and approach",
+      "blocks": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440101",
+          "type": "LLM_TEXT",
+          "title": "Validation Objectives",
+          "instructions": "Describe the objectives of this model validation, including: (1) Primary validation goals, (2) Regulatory requirements being addressed (SR 11-7, OCC 2011-12, etc.), (3) Specific areas of focus based on model risk tier and validation type. Reference the model's materiality and risk classification.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact", "user_provided"]}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440102",
+          "type": "LLM_TABLE",
+          "title": "Validation Activities Matrix",
+          "instructions": "Create a detailed matrix of validation activities performed. Include: Activity Name, Description, Status (Complete/Partial/Not Performed), and any Notes or Limitations. Cover: Conceptual Soundness, Data Quality, Implementation Testing, Performance Analysis, Benchmarking, Sensitivity Analysis, and Documentation Review.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "activity", "label": "Validation Activity", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "status", "label": "Status", "dataType": "string"},
+              {"key": "notes", "label": "Notes/Limitations", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440110",
+          "title": "Data and Samples Used",
+          "level": 2,
+          "description": "Documentation of data sources and samples used in validation",
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440111",
+              "type": "USER_INPUT",
+              "title": "Data Sample Information",
+              "userFields": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440112",
+                  "name": "development_data_period",
+                  "label": "Development Data Period",
+                  "type": "TEXT",
+                  "required": true,
+                  "placeholder": "e.g., Jan 2020 - Dec 2022"
+                },
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440113",
+                  "name": "validation_data_period",
+                  "label": "Validation Data Period",
+                  "type": "TEXT",
+                  "required": true,
+                  "placeholder": "e.g., Jan 2023 - Dec 2023"
+                },
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440114",
+                  "name": "sample_size",
+                  "label": "Validation Sample Size",
+                  "type": "NUMBER",
+                  "required": true,
+                  "placeholder": "e.g., 50000"
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440115",
+              "type": "LLM_TEXT",
+              "title": "Data Quality Assessment",
+              "instructions": "Provide an assessment of the data quality used in validation. Address: (1) Data completeness and missing value analysis, (2) Data integrity checks performed, (3) Representativeness of the validation sample, (4) Any data limitations or concerns, (5) Comparison with development sample characteristics.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440116",
+                  "type": "ARTIFACT",
+                  "description": "Data quality reports and statistics"
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440200",
+      "title": "Testing Plan and Methodology",
+      "level": 1,
+      "description": "Detailed testing plan and methodology documentation",
+      "blocks": [],
+      "childrenSections": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440210",
+          "title": "Conceptual Soundness Review",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440211",
+              "type": "LLM_TEXT",
+              "title": "Theoretical Foundation Assessment",
+              "instructions": "Evaluate the theoretical and conceptual soundness of the model. Address: (1) Appropriateness of the modeling approach for the stated purpose, (2) Consistency with industry standards and academic literature, (3) Key assumptions and their reasonableness, (4) Model limitations and when the model may not perform well, (5) Alternative approaches considered.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440212",
+                  "type": "ARTIFACT",
+                  "description": "Model development documentation"
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "minCitations": 3, "allowedSources": ["artifact", "user_provided"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440220",
+          "title": "Implementation Testing",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440221",
+              "type": "LLM_TABLE",
+              "title": "Test Cases Executed",
+              "instructions": "Document all implementation test cases executed. Include: Test ID, Test Description, Expected Result, Actual Result, Pass/Fail status, and any Notes. Cover unit tests, integration tests, and end-to-end tests.",
+              "inputs": [],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "test_id", "label": "Test ID", "dataType": "string"},
+                  {"key": "description", "label": "Test Description", "dataType": "string"},
+                  {"key": "expected", "label": "Expected Result", "dataType": "string"},
+                  {"key": "actual", "label": "Actual Result", "dataType": "string"},
+                  {"key": "status", "label": "Pass/Fail", "dataType": "string"},
+                  {"key": "notes", "label": "Notes", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440222",
+              "type": "LLM_TEXT",
+              "title": "Code Review Findings",
+              "instructions": "Summarize findings from the model code review. Address: (1) Code quality and maintainability, (2) Consistency with model documentation, (3) Error handling and edge cases, (4) Version control and change management practices, (5) Any identified bugs or issues.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440223",
+                  "type": "REPO",
+                  "query": "model implementation core logic",
+                  "filters": {"filePatterns": ["*.py", "*.r", "*.sas"]}
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["repo"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440230",
+          "title": "Replication Testing",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440231",
+              "type": "USER_INPUT",
+              "title": "Upload Replication Results",
+              "userFields": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440232",
+                  "name": "replication_data",
+                  "label": "Replication Test Results (CSV/Excel)",
+                  "type": "FILE_UPLOAD",
+                  "required": true,
+                  "validation": {"allowedFileTypes": ["csv", "xlsx", "xls"]}
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440233",
+              "type": "LLM_CHART",
+              "title": "Replication Accuracy Analysis",
+              "instructions": "Create a scatter plot comparing model developer results vs. validator replication results. Show the correlation and any systematic deviations. Include R-squared value in the title.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440234",
+                  "type": "ARTIFACT",
+                  "description": "Replication test results data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "scatter",
+                  "xKey": "developer_result",
+                  "yKeys": ["validator_result"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440235",
+              "type": "LLM_TEXT",
+              "title": "Replication Summary",
+              "instructions": "Summarize the replication testing results. Include: (1) Overall replication success rate, (2) Any discrepancies identified and their magnitude, (3) Root cause analysis for any differences, (4) Materiality assessment of discrepancies, (5) Conclusion on implementation accuracy.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440236",
+                  "type": "ARTIFACT",
+                  "description": "Replication results"
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440300",
+      "title": "Performance Analysis",
+      "level": 1,
+      "description": "Model performance testing and analysis results",
+      "blocks": [],
+      "childrenSections": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440310",
+          "title": "Discrimination Analysis",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440311",
+              "type": "USER_INPUT",
+              "title": "Upload Performance Data",
+              "userFields": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440312",
+                  "name": "performance_data",
+                  "label": "Performance Test Data (CSV/Excel)",
+                  "type": "FILE_UPLOAD",
+                  "required": true,
+                  "validation": {"allowedFileTypes": ["csv", "xlsx"]}
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440313",
+              "type": "LLM_TABLE",
+              "title": "Discrimination Metrics Summary",
+              "instructions": "Calculate and present key discrimination metrics including: Gini Coefficient, KS Statistic, AUC/ROC, and Information Value (IV). Show values for development sample, validation sample, and the difference. Flag any metrics that fall outside acceptable thresholds.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440314",
+                  "type": "ARTIFACT",
+                  "description": "Performance data with actual outcomes"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "metric", "label": "Metric", "dataType": "string"},
+                  {"key": "development", "label": "Development", "dataType": "number"},
+                  {"key": "validation", "label": "Validation", "dataType": "number"},
+                  {"key": "difference", "label": "Difference", "dataType": "number"},
+                  {"key": "threshold", "label": "Threshold", "dataType": "string"},
+                  {"key": "status", "label": "Status", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440315",
+              "type": "LLM_CHART",
+              "title": "ROC Curve Comparison",
+              "instructions": "Generate ROC curves comparing development vs. validation performance. Show both curves on the same plot with clear legends and AUC values annotated.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440316",
+                  "type": "ARTIFACT",
+                  "description": "Performance data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "line",
+                  "xKey": "fpr",
+                  "yKeys": ["tpr_development", "tpr_validation"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440317",
+              "type": "LLM_CHART",
+              "title": "KS Distribution Chart",
+              "instructions": "Generate the KS (Kolmogorov-Smirnov) distribution chart showing cumulative distributions of good vs. bad populations. Mark the point of maximum separation.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440318",
+                  "type": "ARTIFACT",
+                  "description": "Performance data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "area",
+                  "xKey": "score_band",
+                  "yKeys": ["cum_good_pct", "cum_bad_pct"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440320",
+          "title": "Calibration Analysis",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440321",
+              "type": "LLM_TABLE",
+              "title": "Calibration by Score Band",
+              "instructions": "Create a calibration table showing for each score band: Number of observations, Predicted probability, Actual outcome rate, and the ratio of Actual/Predicted. Flag bands where calibration is outside acceptable tolerance (typically +/- 20%).",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440322",
+                  "type": "ARTIFACT",
+                  "description": "Performance data with predicted probabilities and outcomes"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "score_band", "label": "Score Band", "dataType": "string"},
+                  {"key": "count", "label": "N", "dataType": "number"},
+                  {"key": "predicted_rate", "label": "Predicted Rate", "dataType": "percentage"},
+                  {"key": "actual_rate", "label": "Actual Rate", "dataType": "percentage"},
+                  {"key": "ratio", "label": "Actual/Predicted", "dataType": "number"},
+                  {"key": "status", "label": "Status", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440323",
+              "type": "LLM_CHART",
+              "title": "Calibration Chart",
+              "instructions": "Generate a calibration chart (reliability diagram) plotting predicted probabilities against actual outcome rates. Include a 45-degree reference line representing perfect calibration.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440324",
+                  "type": "ARTIFACT",
+                  "description": "Calibration data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "scatter",
+                  "xKey": "predicted_rate",
+                  "yKeys": ["actual_rate"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440330",
+          "title": "Stability Analysis",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440331",
+              "type": "LLM_TABLE",
+              "title": "Population Stability Index (PSI)",
+              "instructions": "Calculate PSI for each model variable and the overall score. Show: Variable Name, Development Distribution, Validation Distribution, PSI Value, and Status (Green <0.1, Yellow 0.1-0.25, Red >0.25).",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440332",
+                  "type": "ARTIFACT",
+                  "description": "Development and validation population data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "variable", "label": "Variable", "dataType": "string"},
+                  {"key": "psi_value", "label": "PSI", "dataType": "number"},
+                  {"key": "status", "label": "Status", "dataType": "string"},
+                  {"key": "interpretation", "label": "Interpretation", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440333",
+              "type": "LLM_CHART",
+              "title": "Score Distribution Comparison",
+              "instructions": "Create a histogram comparing score distributions between development and validation samples. Show both distributions overlaid for easy comparison.",
+              "inputs": [
+                {
+                  "id": "550e8400-e29b-41d4-a716-446655440334",
+                  "type": "ARTIFACT",
+                  "description": "Score data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "bar",
+                  "xKey": "score_band",
+                  "yKeys": ["development_pct", "validation_pct"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440335",
+              "type": "LLM_TEXT",
+              "title": "Stability Analysis Conclusion",
+              "instructions": "Provide a comprehensive analysis of model stability. Address: (1) Overall PSI assessment, (2) Variables showing significant drift, (3) Potential causes of population shift, (4) Impact on model performance, (5) Recommendations for ongoing monitoring.",
+              "inputs": [],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440400",
+      "title": "Sensitivity Analysis",
+      "level": 1,
+      "description": "Analysis of model sensitivity to input variations",
+      "blocks": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440401",
+          "type": "LLM_TABLE",
+          "title": "Variable Sensitivity Results",
+          "instructions": "Present results of sensitivity analysis for key model variables. For each variable show: Variable Name, Baseline Value, Stressed Value, Impact on Output (%), and Risk Assessment. Focus on variables with highest influence.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "variable", "label": "Variable", "dataType": "string"},
+              {"key": "baseline", "label": "Baseline", "dataType": "number"},
+              {"key": "stressed", "label": "Stressed Value", "dataType": "number"},
+              {"key": "impact_pct", "label": "Impact %", "dataType": "percentage"},
+              {"key": "risk", "label": "Risk Assessment", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440402",
+          "type": "LLM_CHART",
+          "title": "Sensitivity Tornado Chart",
+          "instructions": "Create a tornado chart showing the relative impact of each variable on model output. Variables should be ordered by impact magnitude.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_CHART",
+            "chartConfig": {
+              "preferredType": "bar",
+              "xKey": "impact_pct",
+              "yKeys": ["variable"]
+            }
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440403",
+          "type": "LLM_TEXT",
+          "title": "Sensitivity Analysis Findings",
+          "instructions": "Summarize key findings from the sensitivity analysis. Address: (1) Most influential variables, (2) Non-linear or unexpected behaviors, (3) Boundary conditions and edge cases, (4) Implications for model risk, (5) Recommendations for monitoring or guardrails.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440500",
+      "title": "Findings and Recommendations",
+      "level": 1,
+      "description": "Detailed findings and remediation recommendations",
+      "blocks": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440501",
+          "type": "LLM_TEXT",
+          "title": "Detailed Findings",
+          "instructions": "Provide detailed documentation of each validation finding. For each finding include: (1) Finding description, (2) Evidence and observations, (3) Root cause analysis, (4) Potential impact if unaddressed, (5) Severity rating with justification, (6) Specific remediation recommendation, (7) Suggested timeline for remediation.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact", "user_provided"]}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440502",
+          "type": "LLM_TABLE",
+          "title": "Remediation Tracking Matrix",
+          "instructions": "Create a remediation tracking matrix with: Finding ID, Description, Owner, Target Date, Status, and Follow-up Actions. Prioritize by severity.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "finding_id", "label": "Finding ID", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "severity", "label": "Severity", "dataType": "string"},
+              {"key": "owner", "label": "Owner", "dataType": "string"},
+              {"key": "target_date", "label": "Target Date", "dataType": "date"},
+              {"key": "status", "label": "Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440600",
+      "title": "Conclusion and Sign-off",
+      "level": 1,
+      "description": "Final conclusions and validation sign-off",
+      "blocks": [
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440601",
+          "type": "LLM_TEXT",
+          "title": "Validation Conclusion",
+          "instructions": "Provide the overall validation conclusion. Include: (1) Summary of validation activities completed, (2) Overall assessment of model fitness for purpose, (3) Key strengths identified, (4) Material weaknesses or concerns, (5) Conditions or restrictions on model use, (6) Recommended validation frequency going forward.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact", "user_provided"]}
+        },
+        {
+          "id": "550e8400-e29b-41d4-a716-446655440602",
+          "type": "USER_INPUT",
+          "title": "Validation Sign-off",
+          "userFields": [
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440603",
+              "name": "validator_signature",
+              "label": "Validator Signature",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440604",
+              "name": "signoff_date",
+              "label": "Sign-off Date",
+              "type": "DATE",
+              "required": true
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440605",
+              "name": "reviewer_signature",
+              "label": "Reviewer Signature",
+              "type": "TEXT",
+              "required": false
+            },
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440606",
+              "name": "approval_conditions",
+              "label": "Approval Conditions (if any)",
+              "type": "TEXTAREA",
+              "required": false
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    }
+  ]
+}

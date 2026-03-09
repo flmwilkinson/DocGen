@@ -1,0 +1,843 @@
+{
+  "templateId": "550e8400-e29b-41d4-a716-446655440002",
+  "name": "First Line Model Document",
+  "description": "Comprehensive model development documentation for first line of defense, including methodology, data analysis, implementation details, and ongoing monitoring specifications",
+  "version": "1.0.0",
+  "schemaVersion": "1.0.0",
+  "category": "model_documentation",
+  "tags": ["MRM", "first-line", "model-development", "documentation", "methodology"],
+  "metadata": {
+    "author": "DocGen.AI",
+    "estimatedGenerationTime": 60
+  },
+  "sections": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440010",
+      "title": "Document Control",
+      "level": 1,
+      "description": "Document metadata and version control",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440011",
+          "type": "USER_INPUT",
+          "title": "Document Information",
+          "userFields": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440012",
+              "name": "model_name",
+              "label": "Model Name",
+              "type": "TEXT",
+              "required": true,
+              "placeholder": "e.g., Probability of Default Model - SME Portfolio"
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440013",
+              "name": "model_id",
+              "label": "Model ID/Reference",
+              "type": "TEXT",
+              "required": true,
+              "placeholder": "e.g., PD-SME-2024-001"
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440014",
+              "name": "document_version",
+              "label": "Document Version",
+              "type": "TEXT",
+              "required": true,
+              "defaultValue": "1.0"
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440015",
+              "name": "model_owner",
+              "label": "Model Owner",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440016",
+              "name": "model_developer",
+              "label": "Model Developer(s)",
+              "type": "TEXTAREA",
+              "required": true
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440017",
+              "name": "business_unit",
+              "label": "Business Unit",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440018",
+              "name": "model_tier",
+              "label": "Model Risk Tier",
+              "type": "SELECT",
+              "required": true,
+              "options": [
+                {"value": "tier1", "label": "Tier 1 - Critical"},
+                {"value": "tier2", "label": "Tier 2 - High"},
+                {"value": "tier3", "label": "Tier 3 - Medium"},
+                {"value": "tier4", "label": "Tier 4 - Low"}
+              ]
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440019",
+              "name": "effective_date",
+              "label": "Effective Date",
+              "type": "DATE",
+              "required": true
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440020",
+          "type": "LLM_TABLE",
+          "title": "Document Revision History",
+          "instructions": "Create a revision history table documenting all changes to this model document. Include columns for Version, Date, Author, Description of Changes, and Approval Status.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "version", "label": "Version", "dataType": "string"},
+              {"key": "date", "label": "Date", "dataType": "date"},
+              {"key": "author", "label": "Author", "dataType": "string"},
+              {"key": "changes", "label": "Description of Changes", "dataType": "string"},
+              {"key": "approval", "label": "Approval Status", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440100",
+      "title": "Executive Summary",
+      "level": 1,
+      "description": "High-level overview of the model",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440101",
+          "type": "LLM_TEXT",
+          "title": "Model Overview",
+          "instructions": "Provide a comprehensive executive summary of the model. Include: (1) Model purpose and business objectives, (2) Key features and capabilities, (3) Target population and use cases, (4) High-level methodology summary, (5) Key performance metrics, (6) Model limitations and known constraints. Keep this accessible to non-technical stakeholders.",
+          "inputs": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440102",
+              "type": "ARTIFACT",
+              "description": "Model development materials and specifications"
+            }
+          ],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440103",
+          "type": "LLM_TABLE",
+          "title": "Model Fact Sheet",
+          "instructions": "Create a quick-reference fact sheet table with key model attributes: Model Type, Methodology, Key Inputs, Output, Performance Metrics (Gini, KS, etc.), Implementation Platform, and Refresh Frequency.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "attribute", "label": "Attribute", "dataType": "string"},
+              {"key": "value", "label": "Value", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440200",
+      "title": "Business Context and Objectives",
+      "level": 1,
+      "description": "Business rationale and model objectives",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440201",
+          "type": "LLM_TEXT",
+          "title": "Business Problem Statement",
+          "instructions": "Describe the business problem this model addresses. Include: (1) Current business challenges, (2) Decision-making context, (3) Stakeholders affected, (4) Cost of errors (both false positives and false negatives), (5) Regulatory drivers if applicable.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440202",
+          "type": "LLM_TEXT",
+          "title": "Model Use Cases",
+          "instructions": "Detail the specific use cases for this model. For each use case describe: (1) The decision being supported, (2) How model output is used, (3) Decision thresholds or cutoffs, (4) Override policies, (5) Integration with other models or processes.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440203",
+          "type": "USER_INPUT",
+          "title": "Materiality Assessment",
+          "userFields": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440204",
+              "name": "portfolio_size",
+              "label": "Portfolio Size ($ or count)",
+              "type": "TEXT",
+              "required": true
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440205",
+              "name": "annual_decisions",
+              "label": "Annual Decisions Impacted",
+              "type": "NUMBER",
+              "required": true
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440206",
+              "name": "regulatory_use",
+              "label": "Regulatory Use",
+              "type": "MULTISELECT",
+              "required": true,
+              "options": [
+                {"value": "capital", "label": "Regulatory Capital"},
+                {"value": "stress_testing", "label": "Stress Testing (CCAR/DFAST)"},
+                {"value": "cecl", "label": "CECL/IFRS9 Provisioning"},
+                {"value": "pricing", "label": "Risk-Based Pricing"},
+                {"value": "none", "label": "No Direct Regulatory Use"}
+              ]
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440300",
+      "title": "Data Description",
+      "level": 1,
+      "description": "Comprehensive data documentation",
+      "blocks": [],
+      "childrenSections": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440310",
+          "title": "Data Sources",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440311",
+              "type": "LLM_TABLE",
+              "title": "Data Source Inventory",
+              "instructions": "Document all data sources used in model development. Include: Source Name, System of Record, Data Owner, Refresh Frequency, Data Period Available, and Quality Rating.",
+              "inputs": [],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "source_name", "label": "Source Name", "dataType": "string"},
+                  {"key": "system", "label": "System of Record", "dataType": "string"},
+                  {"key": "owner", "label": "Data Owner", "dataType": "string"},
+                  {"key": "frequency", "label": "Refresh Frequency", "dataType": "string"},
+                  {"key": "period", "label": "Data Period", "dataType": "string"},
+                  {"key": "quality", "label": "Quality Rating", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440312",
+              "type": "LLM_TEXT",
+              "title": "Data Lineage and Transformations",
+              "instructions": "Document the data lineage from source to model input. Describe key transformations, aggregations, and derivations applied. Include data flow diagrams if applicable.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440313",
+                  "type": "REPO",
+                  "query": "data transformation pipeline ETL",
+                  "filters": {"filePatterns": ["*.py", "*.sql"]}
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["repo"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440320",
+          "title": "Development Sample",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440321",
+              "type": "USER_INPUT",
+              "title": "Upload Development Data Summary",
+              "userFields": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440322",
+                  "name": "dev_data_summary",
+                  "label": "Development Sample Statistics (CSV/Excel)",
+                  "type": "FILE_UPLOAD",
+                  "required": true,
+                  "validation": {"allowedFileTypes": ["csv", "xlsx"]}
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440323",
+              "type": "LLM_TABLE",
+              "title": "Sample Characteristics",
+              "instructions": "Summarize development sample characteristics including: Total observations, Target event rate, Time period, Key segment distributions, and any exclusions applied with justification.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440324",
+                  "type": "ARTIFACT",
+                  "description": "Development data summary"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "characteristic", "label": "Characteristic", "dataType": "string"},
+                  {"key": "value", "label": "Value", "dataType": "string"},
+                  {"key": "notes", "label": "Notes", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440325",
+              "type": "LLM_CHART",
+              "title": "Target Rate Over Time",
+              "instructions": "Create a line chart showing the target event rate (e.g., default rate) over time across the development sample period. Include trend line and note any significant events or regime changes.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440326",
+                  "type": "ARTIFACT",
+                  "description": "Time series data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "line",
+                  "xKey": "period",
+                  "yKeys": ["event_rate"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440330",
+          "title": "Variable Documentation",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440331",
+              "type": "LLM_TABLE",
+              "title": "Model Variable Dictionary",
+              "instructions": "Create a comprehensive data dictionary for all model variables. Include: Variable Name, Business Definition, Technical Definition, Data Type, Source, Missing Value Treatment, and Transformations Applied.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440332",
+                  "type": "ARTIFACT",
+                  "description": "Variable specifications"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "variable_name", "label": "Variable Name", "dataType": "string"},
+                  {"key": "definition", "label": "Definition", "dataType": "string"},
+                  {"key": "data_type", "label": "Type", "dataType": "string"},
+                  {"key": "source", "label": "Source", "dataType": "string"},
+                  {"key": "missing_treatment", "label": "Missing Treatment", "dataType": "string"},
+                  {"key": "transformation", "label": "Transformation", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440333",
+              "type": "LLM_TEXT",
+              "title": "Variable Selection Rationale",
+              "instructions": "Document the variable selection process and rationale. Explain: (1) Initial variable universe considered, (2) Selection criteria used, (3) Variables eliminated and why, (4) Final variable set justification, (5) Known correlations or multicollinearity concerns.",
+              "inputs": [],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440400",
+      "title": "Methodology",
+      "level": 1,
+      "description": "Detailed model methodology documentation",
+      "blocks": [],
+      "childrenSections": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440410",
+          "title": "Modeling Approach",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440411",
+              "type": "USER_INPUT",
+              "title": "Methodology Selection",
+              "userFields": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440412",
+                  "name": "model_technique",
+                  "label": "Primary Modeling Technique",
+                  "type": "SELECT",
+                  "required": true,
+                  "options": [
+                    {"value": "logistic", "label": "Logistic Regression"},
+                    {"value": "xgboost", "label": "XGBoost/Gradient Boosting"},
+                    {"value": "random_forest", "label": "Random Forest"},
+                    {"value": "neural_network", "label": "Neural Network"},
+                    {"value": "linear", "label": "Linear Regression"},
+                    {"value": "survival", "label": "Survival Analysis"},
+                    {"value": "scorecard", "label": "Scorecard (WoE)"},
+                    {"value": "ensemble", "label": "Ensemble Method"},
+                    {"value": "other", "label": "Other"}
+                  ]
+                },
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440413",
+                  "name": "target_definition",
+                  "label": "Target Variable Definition",
+                  "type": "TEXTAREA",
+                  "required": true,
+                  "placeholder": "e.g., 90+ days past due within 12 months of observation"
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440414",
+              "type": "LLM_TEXT",
+              "title": "Methodology Description",
+              "instructions": "Provide a detailed description of the modeling methodology. Include: (1) Theoretical basis and mathematical formulation, (2) Key assumptions, (3) Why this approach was chosen over alternatives, (4) Hyperparameters and their selection, (5) Cross-validation or holdout strategy, (6) Feature engineering techniques applied.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440415",
+                  "type": "REPO",
+                  "query": "model training fit hyperparameters",
+                  "filters": {"filePatterns": ["*.py", "*.r", "*.ipynb"]}
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["repo", "artifact"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440420",
+          "title": "Model Specification",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440421",
+              "type": "LLM_TABLE",
+              "title": "Model Coefficients/Weights",
+              "instructions": "Document the final model specification. For regression models show coefficients, standard errors, p-values, and odds ratios. For tree-based models show feature importances. Include variable names and interpretations.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440422",
+                  "type": "ARTIFACT",
+                  "description": "Model output and coefficients"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "variable", "label": "Variable", "dataType": "string"},
+                  {"key": "coefficient", "label": "Coefficient", "dataType": "number"},
+                  {"key": "std_error", "label": "Std Error", "dataType": "number"},
+                  {"key": "p_value", "label": "P-Value", "dataType": "number"},
+                  {"key": "importance", "label": "Importance %", "dataType": "percentage"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440423",
+              "type": "LLM_CHART",
+              "title": "Feature Importance Chart",
+              "instructions": "Create a horizontal bar chart showing relative feature importance for all model variables. Order by importance descending.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440424",
+                  "type": "ARTIFACT",
+                  "description": "Feature importance data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "bar",
+                  "xKey": "importance",
+                  "yKeys": ["variable"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440425",
+              "type": "LLM_TEXT",
+              "title": "Model Equation/Scoring Logic",
+              "instructions": "Document the complete model equation or scoring logic. For scorecards, include point allocations. For ML models, describe how the final score/probability is calculated. Include any post-processing or calibration adjustments.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440426",
+                  "type": "REPO",
+                  "query": "score prediction calculate probability",
+                  "filters": {"filePatterns": ["*.py", "*.r"]}
+                }
+              ],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["repo"]}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440500",
+      "title": "Model Performance",
+      "level": 1,
+      "description": "Development and out-of-time performance metrics",
+      "blocks": [],
+      "childrenSections": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440510",
+          "title": "Development Performance",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440511",
+              "type": "USER_INPUT",
+              "title": "Upload Performance Metrics",
+              "userFields": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440512",
+                  "name": "performance_data",
+                  "label": "Performance Metrics Data (CSV/Excel)",
+                  "type": "FILE_UPLOAD",
+                  "required": true,
+                  "validation": {"allowedFileTypes": ["csv", "xlsx"]}
+                }
+              ],
+              "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+              "citationPolicy": {"requireCitations": false, "allowedSources": []}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440513",
+              "type": "LLM_TABLE",
+              "title": "Key Performance Metrics",
+              "instructions": "Present key discrimination and rank-ordering metrics: Gini Coefficient, KS Statistic, AUC, Information Value, and Accuracy metrics. Show for training, validation, and out-of-time samples.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440514",
+                  "type": "ARTIFACT",
+                  "description": "Performance metrics data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "metric", "label": "Metric", "dataType": "string"},
+                  {"key": "training", "label": "Training", "dataType": "number"},
+                  {"key": "validation", "label": "Validation", "dataType": "number"},
+                  {"key": "oot", "label": "Out-of-Time", "dataType": "number"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440515",
+              "type": "LLM_CHART",
+              "title": "Gains Chart",
+              "instructions": "Generate a cumulative gains chart showing model lift. Plot cumulative % of events captured vs. cumulative % of population. Include random baseline and annotate key percentiles.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440516",
+                  "type": "ARTIFACT",
+                  "description": "Gains data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_CHART",
+                "chartConfig": {
+                  "preferredType": "line",
+                  "xKey": "population_pct",
+                  "yKeys": ["cumulative_events_pct", "random_baseline"]
+                }
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440517",
+              "type": "LLM_TABLE",
+              "title": "Lift Table by Score Band",
+              "instructions": "Create a detailed lift table showing for each score decile: Population Count, Event Count, Event Rate, Cumulative Event Rate, and Lift vs. Random.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440518",
+                  "type": "ARTIFACT",
+                  "description": "Score band analysis data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "decile", "label": "Decile", "dataType": "string"},
+                  {"key": "count", "label": "Count", "dataType": "number"},
+                  {"key": "events", "label": "Events", "dataType": "number"},
+                  {"key": "event_rate", "label": "Event Rate", "dataType": "percentage"},
+                  {"key": "cum_rate", "label": "Cumulative Rate", "dataType": "percentage"},
+                  {"key": "lift", "label": "Lift", "dataType": "number"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440520",
+          "title": "Segment Analysis",
+          "level": 2,
+          "blocks": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440521",
+              "type": "LLM_TABLE",
+              "title": "Performance by Segment",
+              "instructions": "Analyze model performance across key segments (e.g., by product, geography, customer type). Show Gini and KS for each segment, flag any underperforming segments.",
+              "inputs": [
+                {
+                  "id": "660e8400-e29b-41d4-a716-446655440522",
+                  "type": "ARTIFACT",
+                  "description": "Segment performance data"
+                }
+              ],
+              "outputContract": {
+                "schema": "LLM_TABLE",
+                "tableColumns": [
+                  {"key": "segment", "label": "Segment", "dataType": "string"},
+                  {"key": "population", "label": "Population", "dataType": "number"},
+                  {"key": "event_rate", "label": "Event Rate", "dataType": "percentage"},
+                  {"key": "gini", "label": "Gini", "dataType": "number"},
+                  {"key": "ks", "label": "KS", "dataType": "number"},
+                  {"key": "status", "label": "Status", "dataType": "string"}
+                ]
+              },
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            },
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440523",
+              "type": "LLM_TEXT",
+              "title": "Segment Performance Commentary",
+              "instructions": "Provide analysis of segment-level performance. Identify segments where the model performs particularly well or poorly. Explain potential causes and recommend any segment-specific adjustments or overlays.",
+              "inputs": [],
+              "outputContract": {"schema": "LLM_TEXT"},
+              "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+              "citationPolicy": {"requireCitations": true, "allowedSources": ["artifact"]}
+            }
+          ],
+          "childrenSections": []
+        }
+      ]
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440600",
+      "title": "Implementation",
+      "level": 1,
+      "description": "Model implementation and deployment details",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440601",
+          "type": "LLM_TEXT",
+          "title": "Implementation Architecture",
+          "instructions": "Describe the technical implementation architecture. Include: (1) Production environment and platform, (2) Integration points with upstream/downstream systems, (3) Batch vs. real-time processing, (4) Data refresh and scoring frequency, (5) Error handling and fallback logic.",
+          "inputs": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440602",
+              "type": "REPO",
+              "query": "deployment production scoring pipeline",
+              "filters": {"filePatterns": ["*.py", "*.yaml", "*.yml", "*.json"]}
+            }
+          ],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": true, "allowedSources": ["repo"]}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440603",
+          "type": "LLM_TABLE",
+          "title": "Implementation Testing Checklist",
+          "instructions": "Document all implementation tests performed prior to deployment. Include: Test Name, Description, Expected Result, Actual Result, Pass/Fail, and Tester.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "test_name", "label": "Test", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "expected", "label": "Expected", "dataType": "string"},
+              {"key": "actual", "label": "Actual", "dataType": "string"},
+              {"key": "status", "label": "Pass/Fail", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440700",
+      "title": "Ongoing Monitoring",
+      "level": 1,
+      "description": "Model monitoring framework and thresholds",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440701",
+          "type": "LLM_TEXT",
+          "title": "Monitoring Framework",
+          "instructions": "Describe the ongoing model monitoring framework. Include: (1) Monitoring frequency, (2) Key metrics tracked, (3) Escalation procedures, (4) Roles and responsibilities, (5) Documentation and reporting requirements.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440702",
+          "type": "LLM_TABLE",
+          "title": "Monitoring Thresholds",
+          "instructions": "Define monitoring thresholds and trigger levels. For each metric specify: Metric Name, Green/Yellow/Red thresholds, Measurement Frequency, and Action Required when threshold breached.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "metric", "label": "Metric", "dataType": "string"},
+              {"key": "green", "label": "Green", "dataType": "string"},
+              {"key": "yellow", "label": "Yellow", "dataType": "string"},
+              {"key": "red", "label": "Red", "dataType": "string"},
+              {"key": "frequency", "label": "Frequency", "dataType": "string"},
+              {"key": "action", "label": "Action Required", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440800",
+      "title": "Limitations and Risks",
+      "level": 1,
+      "description": "Known model limitations and risk considerations",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440801",
+          "type": "LLM_TEXT",
+          "title": "Model Limitations",
+          "instructions": "Document all known model limitations. Include: (1) Data limitations, (2) Methodological constraints, (3) Situations where model may not perform well, (4) Population segments not covered, (5) Economic conditions assumed, (6) Time horizons applicable.",
+          "inputs": [],
+          "outputContract": {"schema": "LLM_TEXT"},
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440802",
+          "type": "LLM_TABLE",
+          "title": "Model Risk Assessment",
+          "instructions": "Create a risk assessment matrix identifying key model risks. Include: Risk Category, Risk Description, Likelihood (High/Medium/Low), Impact (High/Medium/Low), Mitigating Controls, and Residual Risk Rating.",
+          "inputs": [],
+          "outputContract": {
+            "schema": "LLM_TABLE",
+            "tableColumns": [
+              {"key": "category", "label": "Risk Category", "dataType": "string"},
+              {"key": "description", "label": "Description", "dataType": "string"},
+              {"key": "likelihood", "label": "Likelihood", "dataType": "string"},
+              {"key": "impact", "label": "Impact", "dataType": "string"},
+              {"key": "controls", "label": "Mitigating Controls", "dataType": "string"},
+              {"key": "residual", "label": "Residual Risk", "dataType": "string"}
+            ]
+          },
+          "regenerationPolicy": {"allowed": true, "maxAttempts": 3, "cacheKeyStrategy": "inputs_hash"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440900",
+      "title": "Appendices",
+      "level": 1,
+      "description": "Supporting documentation and technical details",
+      "blocks": [
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440901",
+          "type": "STATIC_TEXT",
+          "title": "Appendix Guidance",
+          "staticText": "This section should include supplementary materials such as:\n\n- **Appendix A:** Detailed variable analysis and univariate statistics\n- **Appendix B:** Complete model code or pseudocode\n- **Appendix C:** Additional performance charts and tables\n- **Appendix D:** Benchmark model comparisons\n- **Appendix E:** Data quality reports\n- **Appendix F:** Regulatory mapping (SR 11-7 compliance matrix)",
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        },
+        {
+          "id": "660e8400-e29b-41d4-a716-446655440902",
+          "type": "USER_INPUT",
+          "title": "Upload Appendix Materials",
+          "userFields": [
+            {
+              "id": "660e8400-e29b-41d4-a716-446655440903",
+              "name": "appendix_files",
+              "label": "Appendix Documents (PDF, Excel, or ZIP)",
+              "type": "FILE_UPLOAD",
+              "required": false,
+              "validation": {"allowedFileTypes": ["pdf", "xlsx", "zip", "docx"]}
+            }
+          ],
+          "regenerationPolicy": {"allowed": false, "maxAttempts": 1, "cacheKeyStrategy": "none"},
+          "citationPolicy": {"requireCitations": false, "allowedSources": []}
+        }
+      ],
+      "childrenSections": []
+    }
+  ]
+}

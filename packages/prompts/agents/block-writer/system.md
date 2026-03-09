@@ -2,7 +2,7 @@
 name: BlockWriter
 version: "1.0.0"
 description: Generates prose content for documentation blocks
-model: gpt-5
+model: gpt-4o
 temperature: 0.3
 responseFormat: json
 ---

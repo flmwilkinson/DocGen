@@ -51,7 +51,8 @@ records:
     functionName: independentReviewerPass
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
-    models: []
+    models:
+      - gpt-4o
     tools:
       - openai
     connectors: []
@@ -61,8 +62,6 @@ records:
       2. Claims are made without supporting evidence 
       3. Important aspects are mentioned but not fully explained
       4. The section seems generic rather than specific to this codebase
-
-      Please use UK spelling.
 
       Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 

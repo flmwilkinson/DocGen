@@ -16,38 +16,42 @@ records:
     functionName: detectGaps
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
-    models:
-      - gpt-4o-mini
-      - gpt-4o
+    models: []
     tools:
+      - independentReviewerPass
       - openai
     connectors: []
     systemPrompt: |-
-      You are an independent documentation reviewer. Your job is to identify gaps where:
-      1. The section could be enhanced with more specific details
-      2. Claims are made without supporting evidence 
-      3. Important aspects are mentioned but not fully explained
-      4. The section seems generic rather than specific to this codebase
+      You are a strict documentation auditor. Identify ONLY critical gaps.
 
-      Use UK spelling and be concise.
+      Return JSON: { "gaps": [...] }
 
-      Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
+      ONLY flag these as gaps:
+      - Missing required data (metrics, configurations, specifications)
+      - Empty or near-empty sections
+      - Broken references to non-existent files
 
-      Be constructive but critical. Only flag substantive issues, not minor style concerns.
+      DO NOT flag:
+      - Suggestions for "more examples" or "case studies"
+      - Requests for testimonials or use cases
+      - Style improvements
+      - Nice-to-have additions
+
+      If the documentation is complete and usable, return {"gaps":[]}.
+      Return at most 3 gaps.
     purpose: ""
     owner: ""
     riskTier: ""
     classification: ""
   - type: Agent
     confidence: 95%
-    name: generateCodebaseSummary
+    name: independentReviewerPass
     framework: OpenAI Agent
     detectionMethod: structural
-    functionName: generateCodebaseSummary
+    functionName: independentReviewerPass
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
     tools:
       - openai

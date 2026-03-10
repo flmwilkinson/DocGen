@@ -57,6 +57,32 @@ records:
       - openai
     connectors: []
     systemPrompt: |-
+      You are an independent documentation reviewer. Your job is to identify gaps where:
+      1. The section could be enhanced with more specific details
+      2. Claims are made without supporting evidence 
+      3. Important aspects are mentioned but not fully explained
+      4. The section seems generic rather than specific to this codebase
+
+      Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
+
+      Be constructive but critical. Only flag substantive issues, not minor style concerns.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateCodebaseSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateCodebaseSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai.ts
+    models: []
+    tools:
+      - openai
+    connectors: []
+    systemPrompt: |-
       You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
 
       Be specific and accurate. Look at:

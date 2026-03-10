@@ -32,23 +32,12 @@ records:
     owner: ""
     riskTier: ""
     classification: ""
-  - type: Agent
-    confidence: 85%
-    name: OpenAI Assistants Agent
-    framework: OpenAI Assistants Agent
-    detectionMethod: framework
-    invocationMode: TOOL_DRIVEN
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-    tools: []
-    connectors: []
-    systemPrompt: |-
-      You are a documentation assistant. Enhance the provided content based on the user's request. 
-                  - Maintain professional technical documentation style
-                  - Use markdown formatting (bold, italics, headers, lists)
-                  - Be specific and detailed
-                  - Keep the same general structure unless asked to change it
+  - type: FoundationModel
+    confidence: 95%
+    provider: OPENAI
+    family: GPT
+    version: o1
+    deploymentMode: API
     purpose: ""
     owner: ""
     riskTier: ""
@@ -62,8 +51,12 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools:
+      - getAvailableTools
       - maxIterations
+      - tools
+      - truncateMessagesForContext
     connectors: []
     systemPrompt: |-
       Generate a brief 1-2 sentence summary of this code. Focus on:
@@ -85,7 +78,13 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - detectGaps
+      - generateCodebaseSummary
+      - generateNodeSummary
+      - getAvailableTools
+      - tools
     connectors:
       - GitHub API
     systemPrompt: |-
@@ -100,86 +99,23 @@ records:
     riskTier: ""
     classification: ""
   - type: Agent
-    confidence: 95%
-    name: getQueryEmbedding
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: getQueryEmbedding
+    confidence: 85%
+    name: OpenAI Assistants Agent
+    framework: OpenAI Assistants Agent
+    detectionMethod: framework
     invocationMode: TOOL_DRIVEN
-    sourceFile: apps/api/src/lib/vector-search.ts
-    models:
-      - gpt-4o-mini
-      - gpt-4o
-    tools: []
-    connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateEmbedding
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateEmbedding
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/api/src/lib/vector-search.ts
-    models:
-      - gpt-4o-mini
-      - gpt-4o
-    tools: []
-    connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateEmbeddings
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateEmbeddings
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/api/src/lib/vector-search.ts
-    models:
-      - gpt-4o-mini
-      - gpt-4o
-    tools: []
-    connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: parseDataFile
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: parseDataFile
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/code-intelligence.ts
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateEmbeddings
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateEmbeddings
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/code-intelligence.ts
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-    tools: []
-    connectors: []
+    systemPrompt: |-
+      You are a documentation assistant. Enhance the provided content based on the user's request. 
+                  - Maintain professional technical documentation style
+                  - Use markdown formatting (bold, italics, headers, lists)
+                  - Be specific and detailed
+                  - Keep the same general structure unless asked to change it
     purpose: ""
     owner: ""
     riskTier: ""
@@ -195,7 +131,10 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateEmbeddings
+      - parseDataFile
     connectors: []
     systemPrompt: |-
       Generate a brief 1-2 sentence summary of this code. Focus on:
@@ -204,24 +143,6 @@ records:
       - Important dependencies
 
       Be specific and technical. No fluff.
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateSchemaAuditCodeFromPath
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateSchemaAuditCodeFromPath
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/evidence-first.ts
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-    tools: []
-    connectors: []
-    systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
     purpose: ""
     owner: ""
     riskTier: ""
@@ -237,7 +158,11 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - parseDataFile
     connectors: []
     systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
     purpose: ""
@@ -255,6 +180,7 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
     systemPrompt: |-
@@ -284,40 +210,6 @@ records:
     classification: ""
   - type: Agent
     confidence: 95%
-    name: getAvailableTools
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: getAvailableTools
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/llm-tools.ts
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-    tools: []
-    connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateEmbeddings
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateEmbeddings
-    invocationMode: TOOL_DRIVEN
-    sourceFile: services/worker/src/jobs/vector-index.ts
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-    tools: []
-    connectors: []
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
     name: vector-search
     framework: OpenAI Agent
     detectionMethod: structural
@@ -325,10 +217,36 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/api/src/lib/vector-search.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
-    tools: []
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateEmbedding
+      - generateEmbeddings
+      - getQueryEmbedding
     connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: .env.local
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: .env.local
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/.env.local.example
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools: []
+    connectors:
+      - Redis
+      - AWS S3
+      - GitHub API
+      - PostgreSQL
     purpose: ""
     owner: ""
     riskTier: ""
@@ -344,7 +262,10 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
     connectors: []
     purpose: ""
     owner: ""
@@ -361,7 +282,10 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
     connectors: []
     purpose: ""
     owner: ""
@@ -378,7 +302,10 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateEmbeddings
+      - parseDataFile
     connectors: []
     purpose: ""
     owner: ""
@@ -395,6 +322,7 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
     purpose: ""
@@ -412,7 +340,9 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - analyzeGap
     connectors: []
     purpose: ""
     owner: ""
@@ -429,7 +359,9 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - getAvailableTools
     connectors: []
     purpose: ""
     owner: ""
@@ -446,8 +378,31 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: env
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: env
+    invocationMode: TOOL_DRIVEN
+    sourceFile: infra/env.example
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools: []
+    connectors:
+      - Redis
+      - AWS S3
+      - GitHub API
+      - PostgreSQL
     purpose: ""
     owner: ""
     riskTier: ""
@@ -463,6 +418,7 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
     purpose: ""
@@ -480,6 +436,7 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors: []
     purpose: ""
@@ -497,6 +454,7 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
+      - o1
     tools: []
     connectors:
       - Redis
@@ -515,7 +473,9 @@ records:
     models:
       - gpt-4o
       - gpt-4o-mini
-    tools: []
+      - o1
+    tools:
+      - generateEmbeddings
     connectors: []
     purpose: ""
     owner: ""
@@ -563,8 +523,58 @@ records:
     classification: ""
   - type: Tool
     confidence: 85%
-    name: OCR Tool
-    sourceFile: pnpm-lock.yaml
+    name: getQueryEmbedding
+    sourceFile: apps/api/src/lib/vector-search.ts
+    parameterCount: 0
+    capabilityCategory: database
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Tool
+    confidence: 85%
+    name: generateEmbedding
+    sourceFile: apps/api/src/lib/vector-search.ts
+    parameterCount: 0
+    capabilityCategory: other
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Tool
+    confidence: 85%
+    name: generateEmbeddings
+    sourceFile: apps/api/src/lib/vector-search.ts
+    parameterCount: 0
+    capabilityCategory: other
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Tool
+    confidence: 85%
+    name: parseDataFile
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    parameterCount: 0
+    capabilityCategory: file_management
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Tool
+    confidence: 85%
+    name: generateSchemaAuditCodeFromPath
+    sourceFile: apps/web/src/lib/evidence-first.ts
+    parameterCount: 0
+    capabilityCategory: other
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Tool
+    confidence: 85%
+    name: getAvailableTools
+    sourceFile: apps/web/src/lib/llm-tools.ts
     parameterCount: 0
     capabilityCategory: other
     purpose: ""

@@ -8,21 +8,37 @@
 # Removed entities are listed at the bottom as comments.
 # ============================================================
 records:
-  - type: FoundationModel
+  - type: Agent
     confidence: 95%
-    provider: OPENAI
-    family: GPT
-    deploymentMode: API
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: FoundationModel
-    confidence: 95%
-    provider: OPENAI
-    family: GPT
-    version: gpt-4o-mmini
-    deploymentMode: API
+    name: detectGaps
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: detectGaps
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai.ts
+    models: []
+    tools:
+      - independentReviewerPass
+      - openai
+    connectors: []
+    systemPrompt: |-
+      You are a strict documentation auditor. Identify ONLY critical gaps.
+
+      Return JSON: { "gaps": [...] }
+
+      ONLY flag these as gaps:
+      - Missing required data (metrics, configurations, specifications)
+      - Empty or near-empty sections
+      - Broken references to non-existent files
+
+      DO NOT flag:
+      - Suggestions for "more examples" or "case studies"
+      - Requests for testimonials or use cases
+      - Style improvements
+      - Nice-to-have additions
+
+      If the documentation is complete and usable, return {"gaps":[]}.
+      Return at most 3 gaps.
     purpose: ""
     owner: ""
     riskTier: ""
@@ -36,35 +52,7 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
-      - gpt-4o-mmini
       - gpt-4o
-      - gpt-4o-mini
-    tools:
-      - openai
-    connectors: []
-    systemPrompt: |-
-      You are an independent documentation reviewer. Your job is to identify gaps where:
-      1. The section could be enhanced with more specific details
-      2. Claims are made without supporting evidence 
-      3. Important aspects are mentioned but not fully explained
-      4. The section seems generic rather than specific to this codebase
-
-      Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
-
-      Be constructive but critical. Only flag substantive issues, not minor style concerns.
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateCodebaseSummary
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateCodebaseSummary
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
-    models: []
     tools:
       - openai
     connectors: []

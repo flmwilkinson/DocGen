@@ -7,4 +7,288 @@
 #
 # Removed entities are listed at the bottom as comments.
 # ============================================================
-records: []
+records:
+  - type: FoundationModel
+    confidence: 95%
+    provider: OPENAI
+    family: GPT
+    version: gpt-4o
+    deploymentMode: API
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: FoundationModel
+    confidence: 95%
+    provider: OPENAI
+    family: GPT
+    version: o1
+    deploymentMode: API
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 85%
+    name: Agent Loop Pattern
+    framework: Agent Loop Pattern
+    detectionMethod: framework
+    invocationMode: TOOL_DRIVEN
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - getAvailableTools
+      - maxIterations
+      - truncateMessagesForContext
+    connectors: []
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 85%
+    name: Iterative Content Generator
+    framework: Iterative Content Generator
+    detectionMethod: framework
+    invocationMode: TOOL_DRIVEN
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - detectGaps
+      - generateCodebaseSummary
+      - generateNodeSummary
+      - getAvailableTools
+    connectors:
+      - GitHub API
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateChunkSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateChunkSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateEmbeddings
+      - openai-config
+      - parseDataFile
+    connectors: []
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateNodeSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateNodeSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/evidence-first.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - openai-config
+      - parseDataFile
+    connectors: []
+    systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: analyzeGap
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: analyzeGap
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/gap-agent.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - openai-config
+    connectors: []
+    systemPrompt: |-
+      You help users complete documentation by identifying what specific information is needed.
+
+      ## Gap Type
+      ${isMetricsGap ? 'METRICS/VALUES: Need specific numbers (accuracy, latency, etc.)' : ''}
+      ${isContextGap ? 'CONTEXT: Need business/operational context' : ''}
+      ${specificNeeds.length > 0 ? `FLAGGED NEEDS: ${specificNeeds.join(', ')}` : ''}
+
+      ## Your Job
+      Ask 1-3 SPECIFIC questions to get the missing information.
+
+      Examples of GOOD questions:
+      - For metrics: "What accuracy/precision/recall did you achieve in testing?"
+      - For context: "What jurisdictions or regions does this system serve?"
+      - For business: "Who are the primary end users of this system?"
+      - For operational: "What is the expected daily transaction volume?"
+
+      Examples of BAD questions (too vague):
+      - "Can you provide more details?"
+      - "Do you have any documentation?"
+      - "Can you elaborate on this?"
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-builder-optimized
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-builder-optimized
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-builder-optimized.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-react-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-react-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-react-agent.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: code-intelligence
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: code-intelligence
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - generateEmbeddings
+      - openai-config
+      - parseDataFile
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: document-parser
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: document-parser
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/document-parser.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: gap-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: gap-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/gap-agent.ts
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - analyzeGap
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+
+
+# ── Removed Entities ──
+# The following were detected previously but are no longer present.
+# Merging this PR will NOT automatically remove them from inventory.
+# Take action in the Lantern Atlas dashboard if removal is intended.
+#
+# - [agent] vector-search: agent removed: vector-search
+# - [agent] .env.local: agent removed: .env.local
+# - [agent] llm-tools: agent removed: llm-tools
+# - [agent] openai-config: agent removed: openai-config
+# - [agent] env: agent removed: env
+# - [agent] tools: agent removed: tools
+# - [agent] model-gateway: agent removed: model-gateway
+# - [agent] vector-index: agent removed: vector-index

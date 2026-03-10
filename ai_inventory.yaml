@@ -18,6 +18,7 @@ records:
     sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: |-
@@ -44,6 +45,7 @@ records:
     sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
+      - gpt-4o
     tools: []
     connectors: []
     systemPrompt: |-
@@ -70,6 +72,7 @@ records:
     sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
+      - gpt-4o
     tools:
       - detectGaps
       - generateCodebaseSummary

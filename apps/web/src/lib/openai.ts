@@ -2009,7 +2009,7 @@ async function detectGaps(
       
       try {
         const reviewResponse = await openai.chat.completions.create({
-          model: LLM_MODEL,
+          model: 'gpt-5',
           messages: [
             {
               role: 'system',

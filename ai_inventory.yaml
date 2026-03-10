@@ -50,8 +50,8 @@ records:
       If the documentation is complete and usable, return {"gaps":[]}.
       Return at most 3 gaps.
     purpose: ""
-    owner: ""
-    riskTier: ""
+    owner: "francesca.wilkinson@pwc.com"
+    riskTier: "Low"
     classification: ""
   - type: Agent
     confidence: 95%

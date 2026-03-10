@@ -17,8 +17,8 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
-      - gpt-4o-mini
       - gpt-4o
+      - gpt-4o-mini
     tools:
       - independentReviewerPass
       - openai
@@ -54,6 +54,7 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
+      - gpt-4o
       - gpt-4o-mini
     tools:
       - openai
@@ -64,8 +65,6 @@ records:
       2. Claims are made without supporting evidence 
       3. Important aspects are mentioned but not fully explained
       4. The section seems generic rather than specific to this codebase
-
-      Use US spelling and be concise.
 
       Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 
@@ -83,7 +82,7 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
-      - gpt-4o-mini
+      - gpt-4o
     tools:
       - openai
     connectors: []

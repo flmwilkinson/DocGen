@@ -21,6 +21,7 @@ records:
       - gpt-4o
     tools:
       - openai
+    tools: []
     connectors: []
     systemPrompt: |-
       You are an independent documentation reviewer. Your job is to identify gaps where:
@@ -46,8 +47,8 @@ records:
     sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
-    tools:
-      - openai
+      - gpt-4o
+    tools: []
     connectors: []
     systemPrompt: |-
       You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
@@ -63,11 +64,23 @@ records:
     owner: ""
     riskTier: ""
     classification: ""
-
-
-# ── Removed Entities ──
-# The following were detected previously but are no longer present.
-# Merging this PR will NOT automatically remove them from inventory.
-# Take action in the Lantern Atlas dashboard if removal is intended.
-#
-# - [agent] openai: agent removed: openai
+  - type: Agent
+    confidence: 95%
+    name: openai
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: openai
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai.ts
+    models:
+      - gpt-4o-mini
+      - gpt-4o
+    tools:
+      - detectGaps
+      - generateCodebaseSummary
+    connectors:
+      - GitHub API
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""

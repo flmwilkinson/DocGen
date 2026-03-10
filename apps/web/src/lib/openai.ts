@@ -2015,7 +2015,7 @@ async function detectGaps(
               role: 'system',
               content: `You are an independent documentation reviewer. Your job is to identify gaps where:
 1. The section could be enhanced with more specific details
-2. Claims are made without supporting evidence or are incorrect
+2. Claims are made without supporting evidence 
 3. Important aspects are mentioned but not fully explained
 4. The section seems generic rather than specific to this codebase
 

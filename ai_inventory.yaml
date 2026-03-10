@@ -7,4 +7,58 @@
 #
 # Removed entities are listed at the bottom as comments.
 # ============================================================
-records: []
+records:
+  - type: Agent
+    confidence: 85%
+    name: Agent Loop Pattern
+    framework: Agent Loop Pattern
+    detectionMethod: framework
+    invocationMode: TOOL_DRIVEN
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - getAvailableTools
+      - maxIterations
+      - truncateMessagesForContext
+    connectors: []
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 85%
+    name: Iterative Content Generator
+    framework: Iterative Content Generator
+    detectionMethod: framework
+    invocationMode: TOOL_DRIVEN
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - o1
+    tools:
+      - detectGaps
+      - generateCodebaseSummary
+      - generateNodeSummary
+      - getAvailableTools
+    connectors:
+      - GitHub API
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""

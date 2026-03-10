@@ -2009,7 +2009,7 @@ async function detectGaps(
       
       try {
         const reviewResponse = await openai.chat.completions.create({
-          model: 'gpt-4o-mmini',
+          model: 'gpt-4o-mini',
           messages: [
             {
               role: 'system',

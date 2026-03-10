@@ -9,13 +9,11 @@
 # ============================================================
 records:
   - type: Agent
-    confidence: 95%
-    name: detectGaps
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: detectGaps
+    confidence: 85%
+    name: Agent Loop Pattern
+    framework: Agent Loop Pattern
+    detectionMethod: framework
     invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
     tools: []
@@ -35,39 +33,11 @@ records:
     riskTier: ""
     classification: ""
   - type: Agent
-    confidence: 95%
-    name: generateCodebaseSummary
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateCodebaseSummary
+    confidence: 85%
+    name: Iterative Content Generator
+    framework: Iterative Content Generator
+    detectionMethod: framework
     invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
-    models:
-      - gpt-4o-mini
-    tools: []
-    connectors: []
-    systemPrompt: |-
-      You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
-
-      Be specific and accurate. Look at:
-      - The package.json/requirements.txt for dependencies
-      - The main source files for functionality
-      - The folder structure for architecture
-      - The README for stated purpose
-
-      Output a structured summary that will help documentation writers understand this codebase.
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: openai
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: openai
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
     models:
       - gpt-4o-mini
     tools:
@@ -75,6 +45,16 @@ records:
       - generateCodebaseSummary
     connectors:
       - GitHub API
+    systemPrompt: |-
+      You are an independent documentation reviewer. Your job is to identify gaps where:
+      1. The section could be enhanced with more specific details
+      2. Claims are made without supporting evidence 
+      3. Important aspects are mentioned but not fully explained
+      4. The section seems generic rather than specific to this codebase
+
+      Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
+
+      Be constructive but critical. Only flag substantive issues, not minor style concerns.
     purpose: ""
     owner: ""
     riskTier: ""

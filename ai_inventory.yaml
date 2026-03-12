@@ -8,51 +8,6 @@
 # Removed entities are listed at the bottom as comments.
 # ============================================================
 records:
-  - type: FoundationModel
-    confidence: 95%
-    provider: OPENAI
-    family: GPT
-    version: gpt-5
-    deploymentMode: API
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
-  - type: Agent
-    confidence: 95%
-    name: detectGaps
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: detectGaps
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
-    models: []
-    tools:
-      - independentReviewerPass
-      - openai
-    connectors: []
-    systemPrompt: |-
-      You are a strict documentation auditor. Identify ONLY critical gaps.
-
-      Return JSON: { "gaps": [...] }
-
-      ONLY flag these as gaps:
-      - Missing required data (metrics, configurations, specifications)
-      - Empty or near-empty sections
-      - Broken references to non-existent files
-
-      DO NOT flag:
-      - Suggestions for "more examples" or "case studies"
-      - Requests for testimonials or use cases
-      - Style improvements
-      - Nice-to-have additions
-
-      If the documentation is complete and usable, return {"gaps":[]}.
-      Return at most 3 gaps.
-    purpose: ""
-    owner: "francesca.wilkinson@pwc.com"
-    riskTier: "Low"
-    classification: ""
   - type: Agent
     confidence: 95%
     name: independentReviewerPass
@@ -62,7 +17,7 @@ records:
     invocationMode: TOOL_DRIVEN
     sourceFile: apps/web/src/lib/openai.ts
     models:
-      - gpt-5
+      - gpt-4o
     tools:
       - openai
     connectors: []
@@ -80,29 +35,11 @@ records:
     owner: ""
     riskTier: ""
     classification: ""
-  - type: Agent
-    confidence: 95%
-    name: generateCodebaseSummary
-    framework: OpenAI Agent
-    detectionMethod: structural
-    functionName: generateCodebaseSummary
-    invocationMode: TOOL_DRIVEN
-    sourceFile: apps/web/src/lib/openai.ts
-    models: []
-    tools:
-      - openai
-    connectors: []
-    systemPrompt: |-
-      You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
 
-      Be specific and accurate. Look at:
-      - The package.json/requirements.txt for dependencies
-      - The main source files for functionality
-      - The folder structure for architecture
-      - The README for stated purpose
 
-      Output a structured summary that will help documentation writers understand this codebase.
-    purpose: ""
-    owner: ""
-    riskTier: ""
-    classification: ""
+# ── Removed Entities ──
+# The following were detected previously but are no longer present.
+# Merging this PR will NOT automatically remove them from inventory.
+# Take action in the Lantern Atlas dashboard if removal is intended.
+#
+# - [model] OPENAI GPT gpt-5: model removed: OPENAI GPT gpt-5

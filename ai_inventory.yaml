@@ -8,6 +8,16 @@
 # Removed entities are listed at the bottom as comments.
 # ============================================================
 records:
+  - type: FoundationModel
+    confidence: 95%
+    provider: OPENAI
+    family: GPT
+    version: gpt-5
+    deploymentMode: API
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
   - type: Agent
     confidence: 95%
     name: handleAiEnhance

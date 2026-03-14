@@ -20,6 +20,174 @@ records:
     classification: ""
   - type: Agent
     confidence: 95%
+    name: handleAiEnhance
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: handleAiEnhance
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/app/(dashboard)/projects/[id]/runs/[runId]/page.tsx
+    models:
+      - gpt-4o-mini
+    tools: []
+    connectors: []
+    systemPrompt: |-
+      You are a documentation assistant. Enhance the provided content based on the user's request. 
+                  - Maintain professional technical documentation style
+                  - Use markdown formatting (bold, italics, headers, lists)
+                  - Be specific and detailed
+                  - Keep the same general structure unless asked to change it
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateChunkSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateChunkSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models: []
+    tools:
+      - parseDataFile
+      - generateEmbeddings
+      - openai-config
+    connectors: []
+    systemPrompt: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: truncateMessagesForContext
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: truncateMessagesForContext
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/evidence-agent.ts
+    models:
+      - gpt-4o-mini
+    tools:
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateNodeSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateNodeSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/evidence-first.ts
+    models: []
+    tools:
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - openai-config
+    connectors: []
+    systemPrompt: You are a code analyst. Generate concise, factual summaries from source code. No speculation.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: analyzeGap
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: analyzeGap
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/gap-agent.ts
+    models: []
+    tools:
+      - openai-config
+      - openai
+    connectors: []
+    systemPrompt: |-
+      You help users complete documentation by identifying what specific information is needed.
+
+      ## Gap Type
+      ${isMetricsGap ? 'METRICS/VALUES: Need specific numbers (accuracy, latency, etc.)' : ''}
+      ${isContextGap ? 'CONTEXT: Need business/operational context' : ''}
+      ${specificNeeds.length > 0 ? `FLAGGED NEEDS: ${specificNeeds.join(', ')}` : ''}
+
+      ## Your Job
+      Ask 1-3 SPECIFIC questions to get the missing information.
+
+      Examples of GOOD questions:
+      - For metrics: "What accuracy/precision/recall did you achieve in testing?"
+      - For context: "What jurisdictions or regions does this system serve?"
+      - For business: "Who are the primary end users of this system?"
+      - For operational: "What is the expected daily transaction volume?"
+
+      Examples of BAD questions (too vague):
+      - "Can you provide more details?"
+      - "Do you have any documentation?"
+      - "Can you elaborate on this?"
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: detectGaps
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: detectGaps
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai.ts
+    models: []
+    tools:
+      - independentReviewerPass
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+      - openai
+    connectors: []
+    systemPrompt: |-
+      You are a strict documentation auditor. Identify ONLY critical gaps.
+
+      Return JSON: { "gaps": [...] }
+
+      ONLY flag these as gaps:
+      - Missing required data (metrics, configurations, specifications)
+      - Empty or near-empty sections
+      - Broken references to non-existent files
+
+      DO NOT flag:
+      - Suggestions for "more examples" or "case studies"
+      - Requests for testimonials or use cases
+      - Style improvements
+      - Nice-to-have additions
+
+      If the documentation is complete and usable, return {"gaps":[]}.
+      Return at most 3 gaps.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
     name: independentReviewerPass
     framework: OpenAI Agent
     detectionMethod: structural
@@ -29,6 +197,12 @@ records:
     models:
       - gpt-5
     tools:
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
       - openai
     connectors: []
     systemPrompt: |-
@@ -45,6 +219,205 @@ records:
     owner: ""
     riskTier: ""
     classification: ""
+  - type: Agent
+    confidence: 95%
+    name: generateCodebaseSummary
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: generateCodebaseSummary
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/openai.ts
+    models: []
+    tools:
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+      - openai
+    connectors: []
+    systemPrompt: |-
+      You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
+
+      Be specific and accurate. Look at:
+      - The package.json/requirements.txt for dependencies
+      - The main source files for functionality
+      - The folder structure for architecture
+      - The README for stated purpose
+
+      Output a structured summary that will help documentation writers understand this codebase.
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-builder-optimized
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-builder-optimized
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-builder-optimized.ts
+    models: []
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: chart-react-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: chart-react-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/chart-react-agent.ts
+    models: []
+    tools:
+      - generateSchemaAuditCodeFromPath
+      - getAvailableTools
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: code-intelligence
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: code-intelligence
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/code-intelligence.ts
+    models: []
+    tools:
+      - generateEmbeddings
+      - parseDataFile
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: document-parser
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: document-parser
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/document-parser.ts
+    models: []
+    tools:
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: evidence-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: evidence-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/evidence-agent.ts
+    models: []
+    tools:
+      - truncateMessagesForContext
+      - getAvailableTools
+      - parseDataFile
+      - generateEmbeddings
+      - generateSchemaAuditCodeFromPath
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: gap-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: gap-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/gap-agent.ts
+    models: []
+    tools:
+      - analyzeGap
+      - openai-config
+      - openai
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: react-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: react-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/react-agent.ts
+    models: []
+    tools:
+      - getAvailableTools
+      - parseDataFile
+      - generateEmbeddings
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: streaming-agent
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: streaming-agent
+    invocationMode: TOOL_DRIVEN
+    sourceFile: apps/web/src/lib/streaming-agent.ts
+    models: []
+    tools:
+      - getAvailableTools
+      - generateSchemaAuditCodeFromPath
+      - llm-tools
+      - openai-config
+    connectors: []
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
+  - type: Agent
+    confidence: 95%
+    name: document-generation
+    framework: OpenAI Agent
+    detectionMethod: structural
+    functionName: document-generation
+    invocationMode: TOOL_DRIVEN
+    sourceFile: services/worker/src/jobs/document-generation.ts
+    models: []
+    tools: []
+    connectors:
+      - Redis
+    purpose: ""
+    owner: ""
+    riskTier: ""
+    classification: ""
 
 
 # ── Removed Entities ──
@@ -52,4 +425,8 @@ records:
 # Merging this PR will NOT automatically remove them from inventory.
 # Take action in the Lantern Atlas dashboard if removal is intended.
 #
-# - [prompt] system prompt in apps/web/src/lib/openai.ts: system prompt removed from apps/web/src/lib/openai.ts
+# - [model] OPENAI GPT o1: model removed: OPENAI GPT o1
+# - [model] OPENAI GPT gpt-4o: model removed: OPENAI GPT gpt-4o
+# - [agent] Agent Loop Pattern: agent removed: Agent Loop Pattern
+# - [agent] Iterative Content Generator: agent removed: Iterative Content Generator
+# - [agent] OpenAI Assistants Agent: agent removed: OpenAI Assistants Agent

@@ -12,8 +12,9 @@
 agent:
   type: Agent
   name: generateChunkSummary
-  description: The generateChunkSummary agent produces concise summaries of code segments, detailing their purpose, key
-    inputs/outputs, and important dependencies. It focuses on technical accuracy without unnecessary elaboration.
+  description: The generateChunkSummary agent produces concise summaries of code segments, focusing on their purpose, key
+    inputs/outputs, and important dependencies. It aims to provide clear and technical insights without unnecessary
+    elaboration.
   foundationModel: gpt-4o
   framework: OpenAI Agent
   detectionMethod: structural
@@ -30,7 +31,7 @@ agent:
     - openai-config
   connectors: []
   dataInputs:
-    - Source code segments
+    - Source code segment
   dataOutputs:
     - 1-2 sentence summary of the code
   owner: Priya Sharma <priya.sharma@pwc.com>

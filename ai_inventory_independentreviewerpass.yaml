@@ -15,22 +15,22 @@ agent:
   description: The independentReviewerPass agent serves as a critical reviewer of documentation, focusing on identifying
     substantive gaps where details are lacking or claims are unsupported. It provides constructive feedback to enhance
     documentation quality.
-  foundationModel: gpt-4o
+  foundationModel: gpt-5
   models:
-    - gpt-4o
+    - gpt-5
   framework: OpenAI Agent
   functionName: independentReviewerPass
   detectionMethod: structural
   sourceFile: apps/web/src/lib/openai.ts
   confidence: 95%
   tools:
+    - openai-config
+    - generateEmbeddings
     - generateSchemaAuditCodeFromPath
     - getAvailableTools
-    - parseDataFile
-    - generateEmbeddings
-    - llm-tools
-    - openai-config
     - openai
+    - llm-tools
+    - parseDataFile
   connectors: []
   dataInputs:
     - Documentation content

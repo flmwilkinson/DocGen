@@ -33,7 +33,7 @@ agent:
   dataInputs:
     - Documentation content
   dataOutputs:
-    - JSON object with identified gaps or confirmation of completeness
+    - JSON object containing identified gaps or an empty array if none are found
   owner: Elena Rodriguez <elena.rodriguez@pwc.com>
   riskTier: ""
   classification: ""

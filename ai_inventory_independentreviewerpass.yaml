@@ -15,9 +15,9 @@ agent:
   description: The independentReviewerPass agent serves as a critical reviewer of documentation, focusing on identifying
     substantive gaps where details are lacking or claims are unsupported. It provides constructive feedback to enhance
     documentation quality.
-  foundationModel: gpt-5
+  foundationModel: gpt-4o
   models:
-    - gpt-5
+    - gpt-4o
   framework: OpenAI Agent
   functionName: independentReviewerPass
   detectionMethod: structural
@@ -35,7 +35,7 @@ agent:
   dataInputs:
     - Documentation content
   dataOutputs:
-    - JSON object indicating whether gaps exist and detailed descriptions with suggestions
+    - JSON object indicating whether gaps exist and detailing specific issues and suggestions
   owner: "\tFrancesca Wilkinson <francesca.wilkinson@pwc.com>"
   riskTier: ""
   classification: ""
@@ -51,4 +51,4 @@ agent:
 
                               Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 
-                              Be constructive but critical. Only flag substantive issues, not minor style concerns. Please use UK spelling.
+                              Be constructive but critical. Only flag substantive issues, not minor style concerns.

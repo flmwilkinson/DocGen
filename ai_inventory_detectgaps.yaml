@@ -35,7 +35,7 @@ agent:
   dataInputs:
     - Documentation content
   dataOutputs:
-    - JSON object with identified gaps or an empty array if no gaps are found
+    - JSON object with identified gaps or an empty array
   owner: francesca.wilkinson@pwc.com
   riskTier: ""
   classification: ""

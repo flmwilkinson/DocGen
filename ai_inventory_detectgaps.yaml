@@ -13,8 +13,8 @@ agent:
   type: Agent
   name: detectGaps
   description: The detectGaps agent functions as a strict documentation auditor, identifying critical gaps in
-    documentation such as missing required data, empty sections, or broken references. It ensures that documentation is
-    complete and usable by returning a structured JSON output of identified gaps.
+    documentation related to missing required data, empty sections, or broken references. It returns a JSON object
+    listing these gaps or confirms that documentation is complete.
   foundationModel: gpt-4o
   framework: OpenAI Agent
   detectionMethod: structural

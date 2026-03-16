@@ -1,0 +1,48 @@
+# ============================================================
+# Lantern Atlas — Agent: generateChunkSummary
+# ============================================================
+#
+# Review this record. You can:
+#   - Correct any values the scan got wrong
+#   - Fill in governance fields (owner, riskTier, classification)
+#   - Delete this file if the detection is a false positive
+#
+# Approve and merge to update your AI inventory.
+# ============================================================
+agent:
+  type: Agent
+  name: generateChunkSummary
+  description: The generateChunkSummary agent produces concise summaries of code segments, detailing their purpose, key
+    inputs/outputs, and important dependencies. It focuses on technical accuracy without unnecessary elaboration.
+  foundationModel: gpt-4o
+  framework: OpenAI Agent
+  detectionMethod: structural
+  sourceFile: apps/web/src/lib/code-intelligence.ts
+  confidence: 95%
+  tools:
+    - generateSchemaAuditCodeFromPath
+    - getAvailableTools
+    - getQueryEmbedding
+    - generateEmbedding
+    - parseDataFile
+    - generateEmbeddings
+    - llm-tools
+    - openai-config
+  connectors: []
+  dataInputs:
+    - Source code segments
+  dataOutputs:
+    - 1-2 sentence summary of the code
+  owner: Priya Sharma <priya.sharma@pwc.com>
+  riskTier: ""
+  classification: ""
+  systemPrompt:
+    file: apps/web/src/lib/code-intelligence.ts
+    startLine: 987
+    content: |-
+      Generate a brief 1-2 sentence summary of this code. Focus on:
+      - What it does (purpose)
+      - Key inputs/outputs
+      - Important dependencies
+
+      Be specific and technical. No fluff.

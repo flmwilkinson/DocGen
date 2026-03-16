@@ -1,0 +1,51 @@
+# ============================================================
+# Lantern Atlas — Agent: generateCodebaseSummary
+# ============================================================
+#
+# Review this record. You can:
+#   - Correct any values the scan got wrong
+#   - Fill in governance fields (owner, riskTier, classification)
+#   - Delete this file if the detection is a false positive
+#
+# Approve and merge to update your AI inventory.
+# ============================================================
+agent:
+  type: Agent
+  name: generateCodebaseSummary
+  description: The generateCodebaseSummary agent analyzes a codebase to produce a structured summary that outlines its
+    dependencies, functionality, architecture, and stated purpose. This aids documentation writers in understanding the
+    system.
+  foundationModel: gpt-4o-mini
+  framework: OpenAI Agent
+  detectionMethod: structural
+  sourceFile: apps/web/src/lib/openai.ts
+  confidence: 95%
+  tools:
+    - openai-config
+    - getAvailableTools
+    - llm-tools
+    - parseDataFile
+    - generateEmbeddings
+    - generateSchemaAuditCodeFromPath
+    - openai
+  connectors: []
+  dataInputs:
+    - Codebase files including package.json, source files, folder structure, and README
+  dataOutputs:
+    - Structured summary of the codebase
+  owner: Raj Gupta <raj.gupta@pwc.com>
+  riskTier: ""
+  classification: ""
+  systemPrompt:
+    file: apps/web/src/lib/openai.ts
+    startLine: 2188
+    content: |-
+      You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
+
+      Be specific and accurate. Look at:
+      - The package.json/requirements.txt for dependencies
+      - The main source files for functionality
+      - The folder structure for architecture
+      - The README for stated purpose
+
+      Output a structured summary that will help documentation writers understand this codebase.

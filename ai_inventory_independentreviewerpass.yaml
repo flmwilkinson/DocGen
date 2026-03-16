@@ -1,0 +1,86 @@
+# ============================================================
+# Lantern Atlas — Agent: independentReviewerPass
+# ============================================================
+#
+# Review this record. You can:
+#   - Correct any values the scan got wrong
+#   - Fill in governance fields (owner, riskTier, classification)
+#   - Delete this file if the detection is a false positive
+#
+# Approve and merge to update your AI inventory.
+# ============================================================
+agent:
+  type: Agent
+  name: independentReviewerPass
+  description: The independentReviewerPass agent serves as a critical reviewer of documentation, identifying substantive
+    gaps where details are lacking or claims are unsupported. It provides constructive feedback to enhance documentation
+    quality while avoiding minor style concerns.
+  foundationModel: gpt-5
+  framework: OpenAI Agent
+  detectionMethod: structural
+  sourceFile: apps/web/src/lib/openai.ts
+  confidence: 95%
+  tools:
+    - openai
+    - parseDataFile
+    - generateEmbeddings
+    - generateSchemaAuditCodeFromPath
+    - getAvailableTools
+    - llm-tools
+    - openai-config
+  connectors: []
+  dataInputs:
+    - documentation content
+  dataOutputs:
+    - JSON object indicating if gaps exist and detailed descriptions with suggestions
+  owner: Elena Rodriguez <elena.rodriguez@pwc.com>
+  riskTier: ""
+  classification: ""
+  prompts:
+    - role: system
+      file: apps/web/src/lib/openai.ts
+      startLine: 2016
+      content: >-
+        You are an independent documentation reviewer. Your job is to identify gaps where:
+                                1. The section could be enhanced with more specific details
+                                2. Claims are made without supporting evidence 
+                                3. Important aspects are mentioned but not fully explained
+                                4. The section seems generic rather than specific to this codebase
+
+                                Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
+
+                                Be constructive but critical. Only flag substantive issues, not minor style concerns. Please use UK spelling.
+    - role: system
+      file: apps/web/src/lib/openai.ts
+      startLine: 2104
+      content: |-
+        You are a strict documentation auditor. Identify ONLY critical gaps.
+
+        Return JSON: { "gaps": [...] }
+
+        ONLY flag these as gaps:
+        - Missing required data (metrics, configurations, specifications)
+        - Empty or near-empty sections
+        - Broken references to non-existent files
+
+        DO NOT flag:
+        - Suggestions for "more examples" or "case studies"
+        - Requests for testimonials or use cases
+        - Style improvements
+        - Nice-to-have additions
+
+        If the documentation is complete and usable, return {"gaps":[]}.
+        Return at most 3 gaps.
+    - role: system
+      file: apps/web/src/lib/openai.ts
+      startLine: 2188
+      content: |-
+        You are a senior developer analyzing a codebase. Your job is to understand EXACTLY what this system is and does.
+
+        Be specific and accurate. Look at:
+        - The package.json/requirements.txt for dependencies
+        - The main source files for functionality
+        - The folder structure for architecture
+        - The README for stated purpose
+
+        Output a structured summary that will help documentation writers understand this codebase.

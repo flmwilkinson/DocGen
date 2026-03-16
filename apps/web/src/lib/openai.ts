@@ -2009,7 +2009,7 @@ async function detectGaps(
       
       try {
         const reviewResponse = await openai.chat.completions.create({
-          model: 'gpt-5',
+          model: 'gpt-4o',
           messages: [
             {
               role: 'system',
@@ -2021,7 +2021,7 @@ async function detectGaps(
 
                         Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 
-                        Be constructive but critical. Only flag substantive issues, not minor style concerns. Please use UK spelling..`,
+                        Be constructive but critical. Only flag substantive issues, not minor style concerns..`,
             },
             {
               role: 'user',

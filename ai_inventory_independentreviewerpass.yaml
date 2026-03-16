@@ -24,18 +24,18 @@ agent:
   sourceFile: apps/web/src/lib/openai.ts
   confidence: 95%
   tools:
-    - generateSchemaAuditCodeFromPath
     - getAvailableTools
     - parseDataFile
     - generateEmbeddings
     - llm-tools
     - openai-config
     - openai
+    - generateSchemaAuditCodeFromPath
   connectors: []
   dataInputs:
     - Documentation content
   dataOutputs:
-    - JSON object indicating whether gaps exist and detailed descriptions with suggestions
+    - JSON object indicating presence of gaps and suggestions for improvement
   owner: "\tFrancesca Wilkinson <francesca.wilkinson@pwc.com>"
   riskTier: ""
   classification: ""
@@ -51,4 +51,4 @@ agent:
 
                               Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 
-                              Be constructive but critical. Only flag substantive issues, not minor style concerns. Please use UK spelling.
+                              Be constructive but critical. Only flag substantive issues, not minor style concerns.

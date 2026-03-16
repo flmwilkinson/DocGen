@@ -12,27 +12,27 @@
 agent:
   type: Agent
   name: independentReviewerPass
-  description: The independentReviewerPass agent serves as a critical reviewer of documentation, identifying substantive
-    gaps where details are lacking or claims are unsupported. It provides constructive feedback to enhance documentation
-    quality while avoiding minor style concerns.
+  description: The independentReviewerPass agent serves as a critical documentation reviewer, identifying substantive gaps
+    in documentation where details are lacking or claims are unsupported. It provides constructive feedback in a
+    structured JSON format.
   foundationModel: gpt-5
   framework: OpenAI Agent
   detectionMethod: structural
   sourceFile: apps/web/src/lib/openai.ts
   confidence: 95%
   tools:
-    - openai
     - parseDataFile
     - generateEmbeddings
     - generateSchemaAuditCodeFromPath
     - getAvailableTools
     - llm-tools
     - openai-config
+    - openai
   connectors: []
   dataInputs:
-    - documentation content
+    - Documentation content
   dataOutputs:
-    - JSON object indicating if gaps exist and detailed descriptions with suggestions
+    - JSON object indicating presence of gaps and suggestions for improvement
   owner: Elena Rodriguez <elena.rodriguez@pwc.com>
   riskTier: ""
   classification: ""

@@ -2021,7 +2021,7 @@ async function detectGaps(
 
                         Return JSON: { "hasGaps": boolean, "gaps": [{ "description": "...", "suggestion": "..." }] }
 
-                        Be constructive but critical. Only flag substantive issues, not minor style concerns. `,
+                        Be constructive but critical. Only flag substantive issues, not minor style concerns.`,
             },
             {
               role: 'user',

@@ -1,0 +1,38 @@
+# ============================================================
+# Lantern Atlas — Agent: generateNodeSummary
+# ============================================================
+#
+# Review this record. You can:
+#   - Correct any values the scan got wrong
+#   - Fill in governance fields (owner, riskTier, classification)
+#   - Delete this file if the detection is a false positive
+#
+# Approve and merge to update your AI inventory.
+# ============================================================
+agent:
+  type: Agent
+  name: generateNodeSummary
+  description: The generateNodeSummary agent creates factual summaries from source code, emphasizing clarity and precision
+    without speculation. It leverages tools for data parsing and embedding generation.
+  foundationModel: gpt-4o
+  framework: OpenAI Agent
+  detectionMethod: structural
+  sourceFile: apps/web/src/lib/evidence-first.ts
+  confidence: 95%
+  tools:
+    - generateEmbeddings
+    - generateSchemaAuditCodeFromPath
+    - parseDataFile
+    - openai-config
+  connectors: []
+  dataInputs:
+    - Source code for analysis
+  dataOutputs:
+    - Concise summaries of code nodes
+  owner: David Kim <david.kim@pwc.com>
+  riskTier: ""
+  classification: ""
+  systemPrompt:
+    file: apps/web/src/lib/evidence-first.ts
+    startLine: 605
+    content: You are a code analyst. Generate concise, factual summaries from source code. No speculation.

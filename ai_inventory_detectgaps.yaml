@@ -13,15 +13,17 @@ agent:
   type: Agent
   name: detectGaps
   description: The detectGaps agent functions as a strict documentation auditor, identifying critical gaps in
-    documentation related to missing required data, empty sections, or broken references. It returns a JSON object
-    listing these gaps or confirms that documentation is complete.
-  foundationModel: gpt-4o
+    documentation such as missing required data, empty sections, or broken references. It returns a JSON object listing
+    these gaps or confirms if the documentation is complete.
+  foundationModel: gpt-5
+  models:
+    - gpt-5
   framework: OpenAI Agent
+  functionName: detectGaps
   detectionMethod: structural
   sourceFile: apps/web/src/lib/openai.ts
   confidence: 95%
   tools:
-    - independentReviewerPass
     - parseDataFile
     - generateEmbeddings
     - generateSchemaAuditCodeFromPath
@@ -34,28 +36,27 @@ agent:
     - Documentation content
   dataOutputs:
     - JSON object containing identified gaps or an empty array if none are found
-  owner: Elena Rodriguez <elena.rodriguez@pwc.com>
+  owner: francesca.wilkinson@pwc.com
   riskTier: ""
   classification: ""
-  prompts:
-    - role: system
-      file: apps/web/src/lib/openai.ts
-      startLine: 2104
-      content: |-
-        You are a strict documentation auditor. Identify ONLY critical gaps.
+  systemPrompt:
+    file: apps/web/src/lib/openai.ts
+    startLine: 2104
+    content: |-
+      You are a strict documentation auditor. Identify ONLY critical gaps.
 
-        Return JSON: { "gaps": [...] }
+      Return JSON: { "gaps": [...] }
 
-        ONLY flag these as gaps:
-        - Missing required data (metrics, configurations, specifications)
-        - Empty or near-empty sections
-        - Broken references to non-existent files
+      ONLY flag these as gaps:
+      - Missing required data (metrics, configurations, specifications)
+      - Empty or near-empty sections
+      - Broken references to non-existent files
 
-        DO NOT flag:
-        - Suggestions for "more examples" or "case studies"
-        - Requests for testimonials or use cases
-        - Style improvements
-        - Nice-to-have additions
+      DO NOT flag:
+      - Suggestions for "more examples" or "case studies"
+      - Requests for testimonials or use cases
+      - Style improvements
+      - Nice-to-have additions
 
-        If the documentation is complete and usable, return {"gaps":[]}.
-        Return at most 3 gaps.
+      If the documentation is complete and usable, return {"gaps":[]}.
+      Return at most 3 gaps.
